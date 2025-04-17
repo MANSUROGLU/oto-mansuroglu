@@ -5,10 +5,10 @@ export interface CartItem {
   quantity: number;
   price: number;
   name: string;
-  image?: string;
+  image?: string | null;
   partNumber: string;
-  createdAt?: string;
-  updatedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Cart {
@@ -21,5 +21,8 @@ export interface Cart {
 
 export interface CartSummary {
   totalItems: number;
-  totalPrice: number;
+  subtotal: number;
+  shipping: number;
+  tax: number;
+  total: number;
 }
