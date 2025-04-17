@@ -1,90 +1,73 @@
 import React from 'react';
 import Image from 'next/image';
-import { Minus, Plus, X } from 'lucide-react';
 import { CartItem as CartItemType } from '../types';
-import { calculateItemTotal } from '../utils/cartCalculations';
+import { useCartContext } from '../context/CartContext';
 
 interface CartItemProps {
   item: CartItemType;
-  onRemove: (id: string) => void;
-  onUpdateQuantity: (id: string, quantity: number) => void;
 }
 
-const CartItem: React.FC<CartItemProps> = ({
-  item,
-  onRemove,
-  onUpdateQuantity,
-}) => {
-  const { id, name, price, imageUrl, quantity } = item;
-  const itemTotal = calculateItemTotal(item);
+const CartItem: React.FC<CartItemProps> = ({ item }) => {
+  const { updateItemQuantity, removeItem } = useCartContext();
 
-  const handleIncrement = () => {
-    onUpdateQuantity(id, quantity + 1);
+  const handleQuantityChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newQuantity = parseInt(e.target.value, 10);
+    updateItemQuantity(item.id, newQuantity);
   };
 
-  const handleDecrement = () => {
-    if (quantity > 1) {
-      onUpdateQuantity(id, quantity - 1);
-    }
+  const handleRemove = () => {
+    removeItem(item.id);
   };
 
   return (
     <div className="flex items-center py-4 border-b border-gray-200">
-      <div className="w-24 h-24 relative flex-shrink-0 rounded-md overflow-hidden">
-        {imageUrl ? (
-          <Image
-            src={imageUrl}
-            alt={name}
-            fill
-            style={{ objectFit: 'cover' }}
+      <div className="w-24 h-24 relative flex-shrink-0">
+        {item.image ? (
+          <Image 
+            src={item.image} 
+            alt={item.name} 
+            fill 
+            className="object-contain"
           />
         ) : (
-          <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-500">
-            Görsel Yok
+          <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+            <span className="text-gray-400">Resim yok</span>
           </div>
         )}
       </div>
-
+      
       <div className="ml-4 flex-1">
-        <h3 className="text-lg font-medium text-gray-800">{name}</h3>
-        <p className="text-sm text-gray-500">Parça Kodu: {item.partCode}</p>
-        <p className="text-md font-medium text-gray-700 mt-1">
-          {price.toLocaleString('tr-TR')} TL
+        <h3 className="text-lg font-medium text-gray-900">{item.name}</h3>
+        <p className="text-sm text-gray-500">
+          {item.productCode && `Ürün Kodu: ${item.productCode}`}
         </p>
-      </div>
-
-      <div className="flex items-center ml-auto">
-        <div className="flex items-center border border-gray-300 rounded-md">
-          <button
-            onClick={handleDecrement}
-            className="p-2 hover:bg-gray-100 rounded-l-md"
-            disabled={quantity <= 1}
-          >
-            <Minus size={16} />
-          </button>
-          <span className="px-3 py-1">{quantity}</span>
-          <button
-            onClick={handleIncrement}
-            className="p-2 hover:bg-gray-100 rounded-r-md"
-          >
-            <Plus size={16} />
-          </button>
+        <div className="mt-1 flex items-center justify-between">
+          <div className="text-lg font-medium text-gray-900">
+            {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(item.price)}
+          </div>
+          
+          <div className="flex items-center">
+            <select 
+              value={item.quantity} 
+              onChange={handleQuantityChange}
+              className="mx-2 p-1 border border-gray-300 rounded"
+            >
+              {[...Array(10)].map((_, i) => (
+                <option key={i + 1} value={i + 1}>
+                  {i + 1}
+                </option>
+              ))}
+            </select>
+            
+            <button 
+              onClick={handleRemove} 
+              className="ml-4 text-red-600 hover:text-red-800"
+            >
+              Kaldır
+            </button>
+          </div>
         </div>
       </div>
-
-      <div className="text-right ml-6 w-24">
-        <p className="text-lg font-medium text-gray-800">
-          {itemTotal.toLocaleString('tr-TR')} TL
-        </p>
-      </div>
-
-      <button
-        onClick={() => onRemove(id)}
-        className="ml-4 p-2 text-gray-500 hover:text-red-500"
-        aria-label="Ürünü kaldır"
-      >
-        <X size={20} />
-      </button>
     </div>
   );
 };
