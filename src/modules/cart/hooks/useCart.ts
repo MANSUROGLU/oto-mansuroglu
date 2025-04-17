@@ -1,131 +1,135 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useToast } from '@/components/ui/use-toast';
+import { cartService } from '../services/cartService';
 import { Cart, CartItem, CartSummary } from '../types';
-import cartService from '../services/cartService';
-import { useAuth } from '../../auth/hooks/useAuth';
 
-export const useCart = () => {
+export function useCart() {
   const [cart, setCart] = useState<Cart | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { user } = useAuth();
+  const { toast } = useToast();
 
-  const fetchCart = useCallback(async () => {
+  const calculateCartSummary = (cartItems: CartItem[]): CartSummary => {
+    return cartItems.reduce(
+      (summary, item) => {
+        return {
+          totalItems: summary.totalItems + item.quantity,
+          totalPrice: summary.totalPrice + item.price * item.quantity,
+        };
+      },
+      { totalItems: 0, totalPrice: 0 }
+    );
+  };
+
+  const fetchCart = async () => {
+    setIsLoading(true);
     try {
-      setLoading(true);
+      const result = await cartService.getCart();
+      setCart(result);
       setError(null);
-      const cartData = await cartService.getCart();
-      setCart(cartData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sepet yüklenirken bir hata oluştu');
+      setError('Sepet yüklenirken bir hata oluştu');
+      toast({
+        title: 'Hata',
+        description: 'Sepet yüklenirken bir hata oluştu',
+        variant: 'destructive',
+      });
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
-  }, [user?.id]);
+  };
 
-  useEffect(() => {
-    fetchCart();
-  }, [fetchCart]);
-
-  const addItem = async (item: Omit<CartItem, 'id'>) => {
+  const addItem = async (productId: string, quantity: number, productDetails: Partial<CartItem>) => {
     try {
-      setLoading(true);
-      setError(null);
-      const updatedCart = await cartService.addItem(item);
-      setCart(updatedCart);
-      return true;
+      setIsLoading(true);
+      await cartService.addItem(productId, quantity, productDetails);
+      await fetchCart();
+      toast({
+        title: 'Ürün sepete eklendi',
+        description: 'Ürün başarıyla sepete eklendi',
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ürün sepete eklenirken bir hata oluştu');
-      return false;
+      toast({
+        title: 'Hata',
+        description: 'Ürün sepete eklenirken bir hata oluştu',
+        variant: 'destructive',
+      });
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
   const updateItemQuantity = async (itemId: string, quantity: number) => {
     try {
-      setLoading(true);
-      setError(null);
-      const updatedCart = await cartService.updateItemQuantity(itemId, quantity);
-      setCart(updatedCart);
-      return true;
+      setIsLoading(true);
+      await cartService.updateItemQuantity(itemId, quantity);
+      await fetchCart();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sepet güncellenirken bir hata oluştu');
-      return false;
+      toast({
+        title: 'Hata',
+        description: 'Ürün miktarı güncellenirken bir hata oluştu',
+        variant: 'destructive',
+      });
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
   const removeItem = async (itemId: string) => {
     try {
-      setLoading(true);
-      setError(null);
-      const updatedCart = await cartService.removeItem(itemId);
-      setCart(updatedCart);
-      return true;
+      setIsLoading(true);
+      await cartService.removeItem(itemId);
+      await fetchCart();
+      toast({
+        title: 'Ürün silindi',
+        description: 'Ürün sepetten silindi',
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ürün sepetten çıkarılırken bir hata oluştu');
-      return false;
+      toast({
+        title: 'Hata',
+        description: 'Ürün silinirken bir hata oluştu',
+        variant: 'destructive',
+      });
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
   const clearCart = async () => {
     try {
-      setLoading(true);
-      setError(null);
-      const emptyCart = await cartService.clearCart();
-      setCart(emptyCart);
-      return true;
+      setIsLoading(true);
+      await cartService.clearCart();
+      await fetchCart();
+      toast({
+        title: 'Sepet temizlendi',
+        description: 'Sepetinizdeki tüm ürünler silindi',
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sepet temizlenirken bir hata oluştu');
-      return false;
+      toast({
+        title: 'Hata',
+        description: 'Sepet temizlenirken bir hata oluştu',
+        variant: 'destructive',
+      });
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
-  const getCartSummary = (): CartSummary => {
-    if (!cart || !cart.items || cart.items.length === 0) {
-      return {
-        itemCount: 0,
-        subtotal: 0,
-        shipping: 0,
-        tax: 0,
-        total: 0,
-      };
-    }
+  useEffect(() => {
+    fetchCart();
+  }, []);
 
-    const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
-    const subtotal = cart.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    
-    // Kargo ücreti, 500 TL ve üzeri ücretsiz varsayımı
-    const shipping = subtotal >= 500 ? 0 : 30;
-    
-    // KDV %18 varsayımı
-    const tax = subtotal * 0.18;
-    
-    const total = subtotal + shipping + tax;
-
-    return {
-      itemCount,
-      subtotal,
-      shipping,
-      tax,
-      total,
-    };
-  };
+  const cartSummary = cart?.items ? calculateCartSummary(cart.items) : { totalItems: 0, totalPrice: 0 };
 
   return {
     cart,
-    loading,
+    isLoading,
     error,
+    cartSummary,
     fetchCart,
     addItem,
     updateItemQuantity,
     removeItem,
     clearCart,
-    getCartSummary,
   };
-};
+}
