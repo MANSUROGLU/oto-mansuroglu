@@ -1,182 +1,131 @@
-import { useState, useEffect, useCallback } from 'react';
-import { CartService } from '../services/cartService';
+import { useCallback, useEffect, useState } from 'react';
 import { Cart, CartItem, CartSummary } from '../types';
+import cartService from '../services/cartService';
+import { useAuth } from '../../auth/hooks/useAuth';
 
-/**
- * Sepet için custom React hook
- */
 export const useCart = () => {
   const [cart, setCart] = useState<Cart | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const cartService = new CartService();
+  const { user } = useAuth();
 
-  /**
-   * Sepet özetini hesapla
-   */
-  const calculateSummary = useCallback((currentCart: Cart | null): CartSummary => {
-    if (!currentCart || !currentCart.items || currentCart.items.length === 0) {
-      return { itemCount: 0, subTotal: 0, shipping: 0, tax: 0, total: 0 };
+  const fetchCart = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const cartData = await cartService.getCart();
+      setCart(cartData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sepet yüklenirken bir hata oluştu');
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchCart();
+  }, [fetchCart]);
+
+  const addItem = async (item: Omit<CartItem, 'id'>) => {
+    try {
+      setLoading(true);
+      setError(null);
+      const updatedCart = await cartService.addItem(item);
+      setCart(updatedCart);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ürün sepete eklenirken bir hata oluştu');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateItemQuantity = async (itemId: string, quantity: number) => {
+    try {
+      setLoading(true);
+      setError(null);
+      const updatedCart = await cartService.updateItemQuantity(itemId, quantity);
+      setCart(updatedCart);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sepet güncellenirken bir hata oluştu');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const removeItem = async (itemId: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      const updatedCart = await cartService.removeItem(itemId);
+      setCart(updatedCart);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ürün sepetten çıkarılırken bir hata oluştu');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearCart = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const emptyCart = await cartService.clearCart();
+      setCart(emptyCart);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sepet temizlenirken bir hata oluştu');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getCartSummary = (): CartSummary => {
+    if (!cart || !cart.items || cart.items.length === 0) {
+      return {
+        itemCount: 0,
+        subtotal: 0,
+        shipping: 0,
+        tax: 0,
+        total: 0,
+      };
     }
 
-    const itemCount = currentCart.items.reduce((total, item) => total + item.quantity, 0);
-    const subTotal = currentCart.items.reduce((total, item) => total + (item.price * item.quantity), 0);
+    const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
+    const subtotal = cart.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
     
-    // Sabit kargo ücreti - ileride hesaplama mantığı güncellenebilir
-    const shipping = subTotal > 500 ? 0 : 50;
+    // Kargo ücreti, 500 TL ve üzeri ücretsiz varsayımı
+    const shipping = subtotal >= 500 ? 0 : 30;
     
-    // KDV hesaplama (%18)
-    const tax = subTotal * 0.18;
+    // KDV %18 varsayımı
+    const tax = subtotal * 0.18;
     
-    const total = subTotal + shipping + tax;
+    const total = subtotal + shipping + tax;
 
     return {
       itemCount,
-      subTotal,
+      subtotal,
       shipping,
       tax,
-      total
+      total,
     };
-  }, []);
-
-  /**
-   * Sepeti yükle
-   */
-  const loadCart = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await cartService.getCart();
-      if (response.success) {
-        setCart(response.data);
-      } else {
-        setError(response.error);
-      }
-    } catch (err) {
-      setError('Sepet yüklenirken bir hata oluştu.');
-    } finally {
-      setLoading(false);
-    }
-  }, [cartService]);
-
-  /**
-   * Sepete ürün ekle
-   */
-  const addToCart = useCallback(async (item: CartItem) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await cartService.addToCart(item);
-      if (response.success) {
-        setCart(response.data);
-        return true;
-      } else {
-        setError(response.error);
-        return false;
-      }
-    } catch (err) {
-      setError('Ürün sepete eklenirken bir hata oluştu.');
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, [cartService]);
-
-  /**
-   * Sepetteki ürün miktarını güncelle
-   */
-  const updateQuantity = useCallback(async (itemId: string, quantity: number) => {
-    if (quantity < 1) return removeFromCart(itemId);
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await cartService.updateCartItem(itemId, quantity);
-      if (response.success) {
-        setCart(response.data);
-        return true;
-      } else {
-        setError(response.error);
-        return false;
-      }
-    } catch (err) {
-      setError('Ürün miktarı güncellenirken bir hata oluştu.');
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, [cartService]);
-
-  /**
-   * Sepetten ürün kaldır
-   */
-  const removeFromCart = useCallback(async (itemId: string) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await cartService.removeFromCart(itemId);
-      if (response.success) {
-        setCart(response.data);
-        return true;
-      } else {
-        setError(response.error);
-        return false;
-      }
-    } catch (err) {
-      setError('Ürün sepetten kaldırılırken bir hata oluştu.');
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, [cartService]);
-
-  /**
-   * Sepeti temizle
-   */
-  const clearCart = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await cartService.clearCart();
-      if (response.success) {
-        setCart(response.data);
-        return true;
-      } else {
-        setError(response.error);
-        return false;
-      }
-    } catch (err) {
-      setError('Sepet temizlenirken bir hata oluştu.');
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, [cartService]);
-
-  // Component mount olduğunda sepeti yükle
-  useEffect(() => {
-    loadCart();
-  }, [loadCart]);
-
-  // Sepet özetini hesapla
-  const summary = calculateSummary(cart);
+  };
 
   return {
     cart,
     loading,
     error,
-    summary,
-    addToCart,
-    updateQuantity,
-    removeFromCart,
+    fetchCart,
+    addItem,
+    updateItemQuantity,
+    removeItem,
     clearCart,
-    refreshCart: loadCart
+    getCartSummary,
   };
 };
-
-export default useCart;
