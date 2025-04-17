@@ -1,26 +1,32 @@
 export interface CartItem {
   id: string;
-  productId: string;
-  cartId: string;
+  cart_id: string;
+  product_id: string;
   quantity: number;
   price: number;
-  productData: any; // Ürün detayları
-  createdAt?: string;
-  updatedAt?: string;
+  created_at: string;
+  updated_at: string;
+  product?: {
+    id: string;
+    name: string;
+    description?: string;
+    image_url?: string;
+    sku?: string;
+  };
 }
 
 export interface Cart {
   id: string;
-  userId: string;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
   items: CartItem[];
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface CartSummary {
-  totalItems: number;
   subtotal: number;
-  shipping: number;
   tax: number;
+  shipping: number;
   total: number;
+  itemCount: number;
 }
