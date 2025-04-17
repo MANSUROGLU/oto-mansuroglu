@@ -1,194 +1,177 @@
-import { createClient } from '@/utils/supabase/client';
-import { Cart, CartItem, CartSummary } from '../types';
+import { supabase } from '@/lib/supabase';
+import { Cart, CartItem } from '../types';
 
-export class CartApi {
-  private supabase = createClient();
-
+class CartApiService {
   /**
-   * Kullanıcının sepetini getirir
+   * Kullanıcının sepetini getirir veya yeni bir sepet oluşturur
    */
-  async getUserCart(userId: string): Promise<Cart | null> {
-    try {
-      const { data: cart, error: cartError } = await this.supabase
+  async getCart(userId: string): Promise<Cart | null> {
+    // Kullanıcının aktif sepetini bul
+    const { data: cart, error: cartError } = await supabase
+      .from('carts')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (cartError && cartError.code !== 'PGRST116') {
+      console.error('Sepet getirme hatası:', cartError);
+      return null;
+    }
+
+    // Kullanıcının sepeti yoksa yeni bir sepet oluştur
+    if (!cart) {
+      const { data: newCart, error: createError } = await supabase
         .from('carts')
-        .select('*')
-        .eq('user_id', userId)
+        .insert([{ user_id: userId }])
+        .select()
         .single();
 
-      if (cartError) throw cartError;
-      if (!cart) return null;
+      if (createError) {
+        console.error('Sepet oluşturma hatası:', createError);
+        return null;
+      }
 
-      const { data: items, error: itemsError } = await this.supabase
-        .from('cart_items')
-        .select('*, products(*)')
-        .eq('cart_id', cart.id);
-
-      if (itemsError) throw itemsError;
-
-      return {
-        id: cart.id,
-        userId: cart.user_id,
-        items: items.map(item => ({
-          id: item.id,
-          productId: item.product_id,
-          cartId: item.cart_id,
-          quantity: item.quantity,
-          price: item.price,
-          productData: item.products,
-          createdAt: item.created_at,
-          updatedAt: item.updated_at
-        })),
-        createdAt: cart.created_at,
-        updatedAt: cart.updated_at
-      };
-    } catch (error) {
-      console.error('Error fetching cart:', error);
-      throw error;
+      return { ...newCart, items: [] };
     }
-  }
 
-  /**
-   * Yeni bir sepet oluşturur
-   */
-  async createCart(userId: string): Promise<string> {
-    try {
-      const { data, error } = await this.supabase
-        .from('carts')
-        .insert([
-          { user_id: userId }
-        ])
-        .select('id')
-        .single();
+    // Sepet ürünlerini getir
+    const { data: items, error: itemsError } = await supabase
+      .from('cart_items')
+      .select(`
+        *,
+        product:products(
+          id,
+          name,
+          description,
+          image_url,
+          sku,
+          price
+        )
+      `)
+      .eq('cart_id', cart.id);
 
-      if (error) throw error;
-      return data.id;
-    } catch (error) {
-      console.error('Error creating cart:', error);
-      throw error;
+    if (itemsError) {
+      console.error('Sepet ürünleri getirme hatası:', itemsError);
+      return { ...cart, items: [] };
     }
+
+    return { ...cart, items: items || [] };
   }
 
   /**
    * Sepete ürün ekler
    */
-  async addItem(cartId: string, productId: string, quantity: number, price: number): Promise<string> {
-    try {
-      // Önce mevcut ürünü kontrol et
-      const { data: existingItem } = await this.supabase
-        .from('cart_items')
-        .select('id, quantity')
-        .eq('cart_id', cartId)
-        .eq('product_id', productId)
-        .single();
+  async addItem(cartId: string, productId: string, quantity: number, price: number): Promise<CartItem | null> {
+    // Önce ürünün sepette olup olmadığını kontrol et
+    const { data: existingItem } = await supabase
+      .from('cart_items')
+      .select('*')
+      .eq('cart_id', cartId)
+      .eq('product_id', productId)
+      .single();
 
-      if (existingItem) {
-        // Varsa miktarı güncelle
-        const newQuantity = existingItem.quantity + quantity;
-        await this.supabase
-          .from('cart_items')
-          .update({ quantity: newQuantity, updated_at: new Date().toISOString() })
-          .eq('id', existingItem.id);
-        
-        return existingItem.id;
-      } else {
-        // Yoksa yeni ekle
-        const { data, error } = await this.supabase
-          .from('cart_items')
-          .insert([
-            { 
-              cart_id: cartId, 
-              product_id: productId, 
-              quantity: quantity,
-              price: price 
-            }
-          ])
-          .select('id')
-          .single();
-  
-        if (error) throw error;
-        return data.id;
-      }
-    } catch (error) {
-      console.error('Error adding item to cart:', error);
-      throw error;
+    if (existingItem) {
+      // Ürün zaten sepette, miktarını güncelle
+      const newQuantity = existingItem.quantity + quantity;
+      return this.updateItemQuantity(existingItem.id, newQuantity);
     }
+
+    // Yeni ürün ekle
+    const { data, error } = await supabase
+      .from('cart_items')
+      .insert([{
+        cart_id: cartId,
+        product_id: productId,
+        quantity,
+        price
+      }])
+      .select(`
+        *,
+        product:products(
+          id,
+          name,
+          description,
+          image_url,
+          sku,
+          price
+        )
+      `)
+      .single();
+
+    if (error) {
+      console.error('Sepete ürün ekleme hatası:', error);
+      return null;
+    }
+
+    return data;
   }
 
   /**
    * Sepetteki ürün miktarını günceller
    */
-  async updateItemQuantity(itemId: string, quantity: number): Promise<void> {
-    try {
-      if (quantity <= 0) {
-        await this.removeItem(itemId);
-        return;
-      }
-
-      const { error } = await this.supabase
-        .from('cart_items')
-        .update({ 
-          quantity: quantity,
-          updated_at: new Date().toISOString() 
-        })
-        .eq('id', itemId);
-
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error updating cart item:', error);
-      throw error;
+  async updateItemQuantity(itemId: string, quantity: number): Promise<CartItem | null> {
+    if (quantity <= 0) {
+      return this.removeItem(itemId);
     }
+
+    const { data, error } = await supabase
+      .from('cart_items')
+      .update({ quantity, updated_at: new Date().toISOString() })
+      .eq('id', itemId)
+      .select(`
+        *,
+        product:products(
+          id,
+          name,
+          description,
+          image_url,
+          sku,
+          price
+        )
+      `)
+      .single();
+
+    if (error) {
+      console.error('Sepet ürün güncelleme hatası:', error);
+      return null;
+    }
+
+    return data;
   }
 
   /**
    * Sepetten ürün kaldırır
    */
-  async removeItem(itemId: string): Promise<void> {
-    try {
-      const { error } = await this.supabase
-        .from('cart_items')
-        .delete()
-        .eq('id', itemId);
+  async removeItem(itemId: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('cart_items')
+      .delete()
+      .eq('id', itemId);
 
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error removing item from cart:', error);
-      throw error;
+    if (error) {
+      console.error('Sepetten ürün kaldırma hatası:', error);
+      return false;
     }
+
+    return true;
   }
 
   /**
    * Sepeti tamamen temizler
    */
-  async clearCart(cartId: string): Promise<void> {
-    try {
-      const { error } = await this.supabase
-        .from('cart_items')
-        .delete()
-        .eq('cart_id', cartId);
+  async clearCart(cartId: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('cart_items')
+      .delete()
+      .eq('cart_id', cartId);
 
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error clearing cart:', error);
-      throw error;
+    if (error) {
+      console.error('Sepet temizleme hatası:', error);
+      return false;
     }
-  }
 
-  /**
-   * Sepet özeti hesaplar
-   */
-  calculateCartSummary(cart: Cart): CartSummary {
-    const subtotal = cart.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    
-    // Basit bir vergi ve kargo hesaplaması
-    const tax = subtotal * 0.18; // %18 KDV
-    const shipping = subtotal > 1000 ? 0 : 75; // 1000 TL üzeri ücretsiz kargo
-    
-    return {
-      totalItems: cart.items.reduce((sum, item) => sum + item.quantity, 0),
-      subtotal,
-      tax,
-      shipping,
-      total: subtotal + tax + shipping
-    };
+    return true;
   }
 }
+
+export const CartApi = new CartApiService();
