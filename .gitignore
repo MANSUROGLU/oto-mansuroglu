@@ -1,0 +1,64 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+.env.production
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Python virtual environments
+/venv/
+/.venv/
+/*_venv/
+
+# Environment variables
+.env
+.env.slack
+.env.production
+
+# Data directories
+/uploads/
+/data/
+
+# Cache
+/chrome_driver/
+.swc/
+
+# IDE
+/.vscode/
+
+# Long filenames that cause git issues
+**/output/merged_database/images/
+**/oto-mansuroglu/ford_auto_parts_database/output/
+**/ford_auto_parts_database/output/
+ford_auto_parts_database/
