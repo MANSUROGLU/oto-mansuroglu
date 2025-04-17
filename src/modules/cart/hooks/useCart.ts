@@ -1,167 +1,182 @@
-import { useState, useEffect } from 'react';
-import { Cart, CartItem, CartSummary, UseCartReturn } from '../types';
-import { cartService } from '../services/cartService';
+import { useState, useEffect, useCallback } from 'react';
+import { CartService } from '../services/cartService';
+import { Cart, CartItem, CartSummary } from '../types';
 
 /**
- * Sepet işlemlerini yönetmek için React hook
- * @returns {UseCartReturn} Sepet işlemleri için gerekli metot ve değişkenler
+ * Sepet için custom React hook
  */
-export const useCart = (): UseCartReturn => {
-  const [cart, setCart] = useState<Cart>({ items: [] });
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+export const useCart = () => {
+  const [cart, setCart] = useState<Cart | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const cartService = new CartService();
 
   /**
-   * Sepet özeti hesaplama
+   * Sepet özetini hesapla
    */
-  const calculateCartSummary = (cartItems: CartItem[]): CartSummary => {
-    const itemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
-    const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const calculateSummary = useCallback((currentCart: Cart | null): CartSummary => {
+    if (!currentCart || !currentCart.items || currentCart.items.length === 0) {
+      return { itemCount: 0, subTotal: 0, shipping: 0, tax: 0, total: 0 };
+    }
+
+    const itemCount = currentCart.items.reduce((total, item) => total + item.quantity, 0);
+    const subTotal = currentCart.items.reduce((total, item) => total + (item.price * item.quantity), 0);
     
-    // Kargo ücreti hesaplama - 500 TL üzeri ücretsiz kargo
-    const shipping = subtotal >= 500 ? 0 : 29.99;
+    // Sabit kargo ücreti - ileride hesaplama mantığı güncellenebilir
+    const shipping = subTotal > 500 ? 0 : 50;
     
+    // KDV hesaplama (%18)
+    const tax = subTotal * 0.18;
+    
+    const total = subTotal + shipping + tax;
+
     return {
       itemCount,
-      subtotal,
+      subTotal,
       shipping,
-      total: subtotal + shipping
+      tax,
+      total
     };
-  };
-
-  const cartSummary = calculateCartSummary(cart.items);
-
-  // Sayfa yüklendiğinde sepeti getir
-  useEffect(() => {
-    const fetchCart = async () => {
-      setIsLoading(true);
-      try {
-        const response = await cartService.getCart();
-        if (response.success && response.data) {
-          setCart(response.data);
-        }
-      } catch (err) {
-        setError('Sepet yüklenirken bir hata oluştu.');
-        console.error('Sepet yükleme hatası:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchCart();
   }, []);
 
   /**
-   * Sepete ürün ekleme
+   * Sepeti yükle
    */
-  const addToCart = async (product: any, quantity: number): Promise<void> => {
-    setIsLoading(true);
+  const loadCart = useCallback(async () => {
+    setLoading(true);
     setError(null);
+    
     try {
-      const productToAdd: CartItem = {
-        id: product.id,
-        partNumber: product.partNumber || '',
-        name: product.name,
-        price: product.price,
-        quantity: quantity,
-        imageUrl: product.imageUrl || product.images?.[0] || '',
-        modelFitment: product.modelFitment || []
-      };
-
-      const response = await cartService.addToCart(productToAdd);
+      const response = await cartService.getCart();
       if (response.success) {
-        const updatedCart = await cartService.getCart();
-        if (updatedCart.success && updatedCart.data) {
-          setCart(updatedCart.data);
-        }
-      } else if (response.error) {
+        setCart(response.data);
+      } else {
         setError(response.error);
+      }
+    } catch (err) {
+      setError('Sepet yüklenirken bir hata oluştu.');
+    } finally {
+      setLoading(false);
+    }
+  }, [cartService]);
+
+  /**
+   * Sepete ürün ekle
+   */
+  const addToCart = useCallback(async (item: CartItem) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await cartService.addToCart(item);
+      if (response.success) {
+        setCart(response.data);
+        return true;
+      } else {
+        setError(response.error);
+        return false;
       }
     } catch (err) {
       setError('Ürün sepete eklenirken bir hata oluştu.');
-      console.error('Sepete ekleme hatası:', err);
+      return false;
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  };
+  }, [cartService]);
 
   /**
-   * Sepet ürün miktarını güncelleme
+   * Sepetteki ürün miktarını güncelle
    */
-  const updateCartItem = async (itemId: string, quantity: number): Promise<void> => {
-    setIsLoading(true);
+  const updateQuantity = useCallback(async (itemId: string, quantity: number) => {
+    if (quantity < 1) return removeFromCart(itemId);
+    
+    setLoading(true);
     setError(null);
+    
     try {
       const response = await cartService.updateCartItem(itemId, quantity);
       if (response.success) {
-        const updatedCart = await cartService.getCart();
-        if (updatedCart.success && updatedCart.data) {
-          setCart(updatedCart.data);
-        }
-      } else if (response.error) {
+        setCart(response.data);
+        return true;
+      } else {
         setError(response.error);
+        return false;
       }
     } catch (err) {
-      setError('Sepet güncellenirken bir hata oluştu.');
-      console.error('Sepet güncelleme hatası:', err);
+      setError('Ürün miktarı güncellenirken bir hata oluştu.');
+      return false;
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  };
+  }, [cartService]);
 
   /**
-   * Sepetten ürün çıkarma
+   * Sepetten ürün kaldır
    */
-  const removeFromCart = async (itemId: string): Promise<void> => {
-    setIsLoading(true);
+  const removeFromCart = useCallback(async (itemId: string) => {
+    setLoading(true);
     setError(null);
+    
     try {
       const response = await cartService.removeFromCart(itemId);
       if (response.success) {
-        const updatedCart = await cartService.getCart();
-        if (updatedCart.success && updatedCart.data) {
-          setCart(updatedCart.data);
-        }
-      } else if (response.error) {
+        setCart(response.data);
+        return true;
+      } else {
         setError(response.error);
+        return false;
       }
     } catch (err) {
-      setError('Ürün sepetten çıkarılırken bir hata oluştu.');
-      console.error('Sepetten çıkarma hatası:', err);
+      setError('Ürün sepetten kaldırılırken bir hata oluştu.');
+      return false;
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  };
+  }, [cartService]);
 
   /**
-   * Sepeti temizleme
+   * Sepeti temizle
    */
-  const clearCart = async (): Promise<void> => {
-    setIsLoading(true);
+  const clearCart = useCallback(async () => {
+    setLoading(true);
     setError(null);
+    
     try {
       const response = await cartService.clearCart();
       if (response.success) {
-        setCart({ items: [] });
-      } else if (response.error) {
+        setCart(response.data);
+        return true;
+      } else {
         setError(response.error);
+        return false;
       }
     } catch (err) {
       setError('Sepet temizlenirken bir hata oluştu.');
-      console.error('Sepet temizleme hatası:', err);
+      return false;
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  };
+  }, [cartService]);
+
+  // Component mount olduğunda sepeti yükle
+  useEffect(() => {
+    loadCart();
+  }, [loadCart]);
+
+  // Sepet özetini hesapla
+  const summary = calculateSummary(cart);
 
   return {
     cart,
-    cartSummary,
-    isLoading,
+    loading,
     error,
+    summary,
     addToCart,
-    updateCartItem,
+    updateQuantity,
     removeFromCart,
-    clearCart
+    clearCart,
+    refreshCart: loadCart
   };
 };
+
+export default useCart;
