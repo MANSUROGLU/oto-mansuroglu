@@ -1,123 +1,90 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useSession } from '@/hooks/useSession';
-import { CartApi } from '../api/cartApi';
-import { Cart, CartSummary } from '../types';
+import { CartItem } from '../types';
+import { 
+  addItemToCart, 
+  removeItemFromCart, 
+  updateItemQuantity, 
+  saveCartToLocalStorage, 
+  loadCartFromLocalStorage 
+} from '../utils/cartUtils';
+import { 
+  calculateSubtotal, 
+  calculateTax, 
+  calculateShipping, 
+  calculateTotal 
+} from '../utils/cartCalculations';
 
-interface UseCartReturn {
-  cart: Cart | null;
-  isLoading: boolean;
-  error: Error | null;
-  summary: CartSummary | null;
-  addItem: (productId: string, quantity: number, price: number) => Promise<void>;
-  updateQuantity: (itemId: string, quantity: number) => Promise<void>;
-  removeItem: (itemId: string) => Promise<void>;
-  clearCart: () => Promise<void>;
-  refreshCart: () => Promise<void>;
+export interface UseCartReturn {
+  items: CartItem[];
+  isEmpty: boolean;
+  totalItems: number;
+  subtotal: number;
+  tax: number;
+  shipping: number;
+  total: number;
+  addItem: (item: Omit<CartItem, 'id'>) => void;
+  removeItem: (productId: string) => void;
+  updateQuantity: (productId: string, quantity: number) => void;
+  clearCart: () => void;
 }
 
-export function useCart(): UseCartReturn {
-  const [cart, setCart] = useState<Cart | null>(null);
-  const [summary, setSummary] = useState<CartSummary | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<Error | null>(null);
-  const { session } = useSession();
-  const cartApi = new CartApi();
-
-  const refreshCart = useCallback(async () => {
-    if (!session?.user?.id) {
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      let userCart = await cartApi.getUserCart(session.user.id);
-      
-      // Eğer sepet yoksa oluştur
-      if (!userCart) {
-        const cartId = await cartApi.createCart(session.user.id);
-        userCart = await cartApi.getUserCart(session.user.id);
-      }
-
-      setCart(userCart);
-      
-      if (userCart) {
-        const cartSummary = cartApi.calculateCartSummary(userCart);
-        setSummary(cartSummary);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Beklenmeyen bir hata oluştu'));
-      console.error('Sepet yüklenirken hata:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [session?.user?.id]);
-
+/**
+ * Sepet işlemlerini yönetmek için kullanılan hook
+ */
+export const useCart = (): UseCartReturn => {
+  const [items, setItems] = useState<CartItem[]>([]);
+  
+  // Component mount olduğunda local storage'dan sepeti yükle
   useEffect(() => {
-    refreshCart();
-  }, [refreshCart]);
-
-  const addItem = useCallback(async (productId: string, quantity: number, price: number) => {
-    if (!session?.user?.id || !cart) {
-      throw new Error('Oturum veya sepet bulunamadı');
+    const storedCart = loadCartFromLocalStorage();
+    if (storedCart.length > 0) {
+      setItems(storedCart);
     }
-
-    try {
-      await cartApi.addItem(cart.id, productId, quantity, price);
-      await refreshCart();
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Ürün eklenirken hata oluştu'));
-      throw err;
-    }
-  }, [cart, session?.user?.id, refreshCart]);
-
-  const updateQuantity = useCallback(async (itemId: string, quantity: number) => {
-    if (!cart) return;
-
-    try {
-      await cartApi.updateItemQuantity(itemId, quantity);
-      await refreshCart();
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Miktar güncellenirken hata oluştu'));
-      throw err;
-    }
-  }, [cart, refreshCart]);
-
-  const removeItem = useCallback(async (itemId: string) => {
-    if (!cart) return;
-
-    try {
-      await cartApi.removeItem(itemId);
-      await refreshCart();
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Ürün kaldırılırken hata oluştu'));
-      throw err;
-    }
-  }, [cart, refreshCart]);
-
-  const clearCart = useCallback(async () => {
-    if (!cart) return;
-
-    try {
-      await cartApi.clearCart(cart.id);
-      await refreshCart();
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Sepet temizlenirken hata oluştu'));
-      throw err;
-    }
-  }, [cart, refreshCart]);
-
+  }, []);
+  
+  // Sepet değiştiğinde local storage'a kaydet
+  useEffect(() => {
+    saveCartToLocalStorage(items);
+  }, [items]);
+  
+  // Sepete ürün ekleme
+  const addItem = useCallback((item: Omit<CartItem, 'id'>) => {
+    setItems(prevItems => addItemToCart(prevItems, item));
+  }, []);
+  
+  // Sepetten ürün çıkarma
+  const removeItem = useCallback((productId: string) => {
+    setItems(prevItems => removeItemFromCart(prevItems, productId));
+  }, []);
+  
+  // Sepetteki ürün miktarını güncelleme
+  const updateQuantity = useCallback((productId: string, quantity: number) => {
+    setItems(prevItems => updateItemQuantity(prevItems, productId, quantity));
+  }, []);
+  
+  // Sepeti temizleme
+  const clearCart = useCallback(() => {
+    setItems([]);
+  }, []);
+  
+  // Hesaplamalar
+  const totalItems = items.reduce((total, item) => total + item.quantity, 0);
+  const subtotal = calculateSubtotal(items);
+  const tax = calculateTax(subtotal);
+  const shipping = calculateShipping(items);
+  const total = calculateTotal(subtotal, tax, shipping);
+  
   return {
-    cart,
-    isLoading,
-    error,
-    summary,
+    items,
+    isEmpty: items.length === 0,
+    totalItems,
+    subtotal,
+    tax,
+    shipping,
+    total,
     addItem,
-    updateQuantity,
     removeItem,
+    updateQuantity,
     clearCart,
-    refreshCart
   };
-}
+};
