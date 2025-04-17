@@ -1,77 +1,54 @@
 /**
- * Sepet modülü için tip tanımlamaları
- */
-
-/**
- * Sepet ürünü
+ * Sepet öğesi tipi
  */
 export interface CartItem {
-  id: string;          // Ürün ID
-  partNumber: string;  // Parça numarası
-  name: string;        // Ürün adı
-  price: number;       // Ürün fiyatı
-  quantity: number;    // Miktar
-  imageUrl?: string;   // Ürün görseli (opsiyonel)
-  modelFitment?: string[]; // Uyumlu model bilgisi (opsiyonel)
+  id?: string;
+  partNumber: string;
+  name: string;
+  price: number;
+  quantity: number;
+  imageUrl?: string;
+  modelFitment?: string[];
 }
 
 /**
- * Sepet
+ * Sepet tipi
  */
 export interface Cart {
+  id?: string;
   items: CartItem[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 /**
  * Sepet özeti
  */
 export interface CartSummary {
-  itemCount: number;    // Toplam ürün adedi
-  subtotal: number;     // Ara toplam
-  shipping: number;     // Kargo ücreti
-  total: number;        // Genel toplam
+  itemCount: number;
+  subTotal: number;
+  shipping: number;
+  tax: number;
+  total: number;
 }
 
 /**
- * Sepet API yanıt tipleri
+ * API yanıt tipi - başarılı
  */
-export interface CartApiResponse {
-  success: boolean;
-  message?: string;
-  error?: string;
-}
-
-export interface GetCartResponse extends CartApiResponse {
-  data?: Cart;
+export interface ApiSuccess<T> {
+  success: true;
+  data: T;
 }
 
 /**
- * Sepet API istek tipleri
+ * API yanıt tipi - hata
  */
-export interface AddToCartRequest {
-  productId: string;
-  quantity: number;
-}
-
-export interface UpdateCartItemRequest {
-  itemId: string;
-  quantity: number;
-}
-
-export interface RemoveFromCartRequest {
-  itemId: string;
+export interface ApiError {
+  success: false;
+  error: string;
 }
 
 /**
- * useCart Hook için dönüş tipi
+ * API yanıt birleşik tip
  */
-export interface UseCartReturn {
-  cart: Cart;
-  cartSummary: CartSummary;
-  isLoading: boolean;
-  error: string | null;
-  addToCart: (product: any, quantity: number) => Promise<void>;
-  updateCartItem: (itemId: string, quantity: number) => Promise<void>;
-  removeFromCart: (itemId: string) => Promise<void>;
-  clearCart: () => Promise<void>;
-}
+export type CartApiResponse<T> = ApiSuccess<T> | ApiError;
