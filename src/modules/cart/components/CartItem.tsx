@@ -1,139 +1,92 @@
-/**
- * Sepet öğesi komponenti
- */
-import { useState } from 'react';
+import React from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
+import { Minus, Plus, X } from 'lucide-react';
 import { CartItem as CartItemType } from '../types';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { MinusIcon, PlusIcon, Trash2 } from 'lucide-react';
+import { calculateItemTotal } from '../utils/cartCalculations';
 
 interface CartItemProps {
   item: CartItemType;
-  onUpdate: (itemId: string, quantity: number) => void;
-  onRemove: (itemId: string) => void;
+  onRemove: (id: string) => void;
+  onUpdateQuantity: (id: string, quantity: number) => void;
 }
 
-export function CartItem({ item, onUpdate, onRemove }: CartItemProps) {
-  const [quantity, setQuantity] = useState(item.quantity);
+const CartItem: React.FC<CartItemProps> = ({
+  item,
+  onRemove,
+  onUpdateQuantity,
+}) => {
+  const { id, name, price, imageUrl, quantity } = item;
+  const itemTotal = calculateItemTotal(item);
 
-  // Miktar değiştiğinde
-  const handleQuantityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newQuantity = parseInt(e.target.value) || 1;
-    setQuantity(newQuantity);
-    onUpdate(item.id, newQuantity);
-  };
-
-  // Arttır butonuna tıklandığında
   const handleIncrement = () => {
-    const newQuantity = quantity + 1;
-    setQuantity(newQuantity);
-    onUpdate(item.id, newQuantity);
+    onUpdateQuantity(id, quantity + 1);
   };
 
-  // Azalt butonuna tıklandığında
   const handleDecrement = () => {
     if (quantity > 1) {
-      const newQuantity = quantity - 1;
-      setQuantity(newQuantity);
-      onUpdate(item.id, newQuantity);
+      onUpdateQuantity(id, quantity - 1);
     }
   };
 
-  // Kaldır butonuna tıklandığında
-  const handleRemove = () => {
-    onRemove(item.id);
-  };
-
   return (
-    <div className="flex items-start space-x-4 py-6 border-b">
-      {/* Ürün Resmi */}
-      <div className="relative h-24 w-24 rounded-md overflow-hidden border">
-        <Link href={`/urunler/${item.productId}`}>
+    <div className="flex items-center py-4 border-b border-gray-200">
+      <div className="w-24 h-24 relative flex-shrink-0 rounded-md overflow-hidden">
+        {imageUrl ? (
           <Image
-            src={item.product.images?.[0] || '/placeholder.png'}
-            alt={item.product.name}
+            src={imageUrl}
+            alt={name}
             fill
-            className="object-cover"
+            style={{ objectFit: 'cover' }}
           />
-        </Link>
+        ) : (
+          <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-500">
+            Görsel Yok
+          </div>
+        )}
       </div>
 
-      {/* Ürün Bilgileri */}
-      <div className="flex-1 min-w-0">
-        <Link 
-          href={`/urunler/${item.productId}`}
-          className="text-lg font-medium text-gray-900 hover:text-blue-600 transition-colors"
-        >
-          {item.product.name}
-        </Link>
+      <div className="ml-4 flex-1">
+        <h3 className="text-lg font-medium text-gray-800">{name}</h3>
+        <p className="text-sm text-gray-500">Parça Kodu: {item.partCode}</p>
+        <p className="text-md font-medium text-gray-700 mt-1">
+          {price.toLocaleString('tr-TR')} TL
+        </p>
+      </div>
 
-        {item.product.partNumber && (
-          <p className="mt-1 text-sm text-gray-500">
-            Parça No: {item.product.partNumber}
-          </p>
-        )}
-
-        {item.product.brand && (
-          <p className="mt-1 text-sm text-gray-500">
-            Marka: {item.product.brand.name}
-          </p>
-        )}
-
-        <div className="mt-1 flex items-center">
-          <p className="text-lg font-medium text-gray-900">
-            {item.product.formattedPrice || `${item.price.toLocaleString('tr-TR')} TL`}
-          </p>
+      <div className="flex items-center ml-auto">
+        <div className="flex items-center border border-gray-300 rounded-md">
+          <button
+            onClick={handleDecrement}
+            className="p-2 hover:bg-gray-100 rounded-l-md"
+            disabled={quantity <= 1}
+          >
+            <Minus size={16} />
+          </button>
+          <span className="px-3 py-1">{quantity}</span>
+          <button
+            onClick={handleIncrement}
+            className="p-2 hover:bg-gray-100 rounded-r-md"
+          >
+            <Plus size={16} />
+          </button>
         </div>
       </div>
 
-      {/* Miktar Kontrolü */}
-      <div className="flex items-center space-x-2">
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-8 w-8"
-          onClick={handleDecrement}
-          disabled={quantity <= 1}
-        >
-          <MinusIcon className="h-4 w-4" />
-        </Button>
-        
-        <Input
-          type="number"
-          min="1"
-          className="h-8 w-14 text-center"
-          value={quantity}
-          onChange={handleQuantityChange}
-        />
-        
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-8 w-8"
-          onClick={handleIncrement}
-        >
-          <PlusIcon className="h-4 w-4" />
-        </Button>
+      <div className="text-right ml-6 w-24">
+        <p className="text-lg font-medium text-gray-800">
+          {itemTotal.toLocaleString('tr-TR')} TL
+        </p>
       </div>
 
-      {/* Toplam ve Kaldır */}
-      <div className="flex flex-col items-end space-y-2">
-        <p className="text-lg font-medium text-gray-900">
-          {(item.price * quantity).toLocaleString('tr-TR')} TL
-        </p>
-        
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-red-600 hover:text-red-800 hover:bg-red-50"
-          onClick={handleRemove}
-        >
-          <Trash2 className="h-4 w-4 mr-1" />
-          <span>Kaldır</span>
-        </Button>
-      </div>
+      <button
+        onClick={() => onRemove(id)}
+        className="ml-4 p-2 text-gray-500 hover:text-red-500"
+        aria-label="Ürünü kaldır"
+      >
+        <X size={20} />
+      </button>
     </div>
   );
-}
+};
+
+export default CartItem;
