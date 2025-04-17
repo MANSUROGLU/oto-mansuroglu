@@ -1,53 +1,25 @@
-/**
- * Sepet öğesi tipi
- */
 export interface CartItem {
   id: string;
   productId: string;
-  name: string;
-  partNumber: string;
-  price: number;
+  cartId: string;
   quantity: number;
+  price: number;
+  name: string;
   image?: string;
+  partNumber: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-/**
- * Sepet tipi
- */
 export interface Cart {
   id: string;
   userId: string;
   items: CartItem[];
+  createdAt: string;
+  updatedAt: string;
 }
 
-/**
- * Sepet özeti tipi
- */
 export interface CartSummary {
-  itemCount: number;
-  subtotal: number;
-  shipping: number;
-  tax: number;
-  total: number;
+  totalItems: number;
+  totalPrice: number;
 }
-
-/**
- * API yanıt tipi (başarılı durumda)
- */
-export interface CartApiSuccessResponse {
-  success: true;
-  data: Cart;
-}
-
-/**
- * API yanıt tipi (hata durumunda)
- */
-export interface CartApiErrorResponse {
-  success: false;
-  error: string;
-}
-
-/**
- * Birleştirilmiş API yanıt tipi
- */
-export type CartApiResponse = CartApiSuccessResponse | CartApiErrorResponse;
