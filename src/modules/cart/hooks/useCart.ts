@@ -1,300 +1,167 @@
-import { useCallback, useEffect, useState } from 'react';
-import { 
-  AddToCartRequest, 
-  CartItem, 
-  CartState, 
-  CartSummary,
-  UpdateCartItemRequest, 
-  RemoveFromCartRequest 
-} from '../types';
-
-// Mock varsayılan sepet özeti
-const defaultCartSummary: CartSummary = {
-  itemCount: 0,
-  totalItems: 0,
-  subtotal: 0,
-  discountAmount: 0,
-  shippingCost: 0,
-  total: 0,
-  freeShippingThreshold: 2000, // 2000 TL üzeri ücretsiz kargo
-};
+import { useState, useEffect } from 'react';
+import { Cart, CartItem, CartSummary, UseCartReturn } from '../types';
+import { cartService } from '../services/cartService';
 
 /**
- * Sepet işlevselliğini sağlayan özel hook
- * 
- * Sepet öğelerini yerel depolamadan yükler ve API ile senkronize eder
+ * Sepet işlemlerini yönetmek için React hook
+ * @returns {UseCartReturn} Sepet işlemleri için gerekli metot ve değişkenler
  */
-export function useCart() {
-  const [state, setState] = useState<CartState>({
-    items: [],
-    summary: defaultCartSummary,
-    isLoading: true,
-    error: null,
-  });
+export const useCart = (): UseCartReturn => {
+  const [cart, setCart] = useState<Cart>({ items: [] });
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Sepet verilerini local storage ve API'den yükle
-  useEffect(() => {
-    const loadCart = async () => {
-      setState(prev => ({ ...prev, isLoading: true }));
-      
-      try {
-        // TODO: API'den sepet verilerini al
-        // Şimdilik local storage'den yükleme simülasyonu yapıyoruz
-        const storedCart = localStorage.getItem('cart');
-        
-        if (storedCart) {
-          const { items } = JSON.parse(storedCart);
-          const summary = calculateCartSummary(items);
-          
-          setState({
-            items,
-            summary,
-            isLoading: false,
-            error: null,
-          });
-        } else {
-          setState({
-            items: [],
-            summary: defaultCartSummary,
-            isLoading: false,
-            error: null,
-          });
-        }
-      } catch (error) {
-        setState(prev => ({ 
-          ...prev, 
-          isLoading: false, 
-          error: 'Sepet yüklenirken bir hata oluştu' 
-        }));
-      }
-    };
-
-    loadCart();
-  }, []);
-
-  // Sepet özeti hesaplama fonksiyonu
-  const calculateCartSummary = useCallback((items: CartItem[]): CartSummary => {
-    const itemCount = items.length;
-    const totalItems = items.reduce((total, item) => total + item.quantity, 0);
-    const subtotal = items.reduce((total, item) => total + (item.price * item.quantity), 0);
+  /**
+   * Sepet özeti hesaplama
+   */
+  const calculateCartSummary = (cartItems: CartItem[]): CartSummary => {
+    const itemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+    const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     
-    // Şimdilik sabit indirim ve kargo ücreti (ileride daha karmaşık olabilir)
-    const discountAmount = 0; // İndirim yok varsayılan olarak
-    let shippingCost = subtotal >= defaultCartSummary.freeShippingThreshold ? 0 : 99.90;
-    
-    const total = subtotal - discountAmount + shippingCost;
+    // Kargo ücreti hesaplama - 500 TL üzeri ücretsiz kargo
+    const shipping = subtotal >= 500 ? 0 : 29.99;
     
     return {
       itemCount,
-      totalItems,
       subtotal,
-      discountAmount,
-      shippingCost,
-      total,
-      freeShippingThreshold: defaultCartSummary.freeShippingThreshold,
+      shipping,
+      total: subtotal + shipping
     };
+  };
+
+  const cartSummary = calculateCartSummary(cart.items);
+
+  // Sayfa yüklendiğinde sepeti getir
+  useEffect(() => {
+    const fetchCart = async () => {
+      setIsLoading(true);
+      try {
+        const response = await cartService.getCart();
+        if (response.success && response.data) {
+          setCart(response.data);
+        }
+      } catch (err) {
+        setError('Sepet yüklenirken bir hata oluştu.');
+        console.error('Sepet yükleme hatası:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchCart();
   }, []);
 
-  // Sepeti local storage'a kaydet
-  const saveCartToStorage = useCallback((items: CartItem[]) => {
-    localStorage.setItem('cart', JSON.stringify({ items }));
-  }, []);
+  /**
+   * Sepete ürün ekleme
+   */
+  const addToCart = async (product: any, quantity: number): Promise<void> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const productToAdd: CartItem = {
+        id: product.id,
+        partNumber: product.partNumber || '',
+        name: product.name,
+        price: product.price,
+        quantity: quantity,
+        imageUrl: product.imageUrl || product.images?.[0] || '',
+        modelFitment: product.modelFitment || []
+      };
 
-  // Sepete ürün ekleme
-  const addToCart = useCallback(async (request: AddToCartRequest) => {
-    setState(prev => ({ ...prev, isLoading: true }));
-    
-    try {
-      // TODO: API entegrasyonu
-      // Şimdilik local storage simülasyonu
-      
-      const { productId, quantity } = request;
-      
-      // Mevcut sepeti al
-      const currentItems = [...state.items];
-      
-      // Ürünün zaten sepette olup olmadığını kontrol et
-      const existingItemIndex = currentItems.findIndex(item => item.productId === productId);
-      
-      if (existingItemIndex >= 0) {
-        // Eğer ürün zaten sepetteyse, miktarını güncelle
-        const updatedItem = {
-          ...currentItems[existingItemIndex],
-          quantity: Math.min(
-            currentItems[existingItemIndex].quantity + quantity,
-            currentItems[existingItemIndex].maxQuantity
-          )
-        };
-        
-        currentItems[existingItemIndex] = updatedItem;
-      } else {
-        // Eğer ürün sepette değilse, yeni ekle
-        // Not: Gerçek uygulamada bu bilgiler API'den gelecektir
-        // Bu mock veri sadece örnek amaçlıdır
-        const mockProduct = {
-          id: `cart-item-${Date.now()}`,
-          productId,
-          name: 'Örnek Ford Parçası',
-          partNumber: 'FP-12345',
-          price: 549.90,
-          quantity,
-          maxQuantity: 10,
-          brand: 'Ford',
-          imageUrl: '/images/products/sample-part.jpg'
-        };
-        
-        currentItems.push(mockProduct);
+      const response = await cartService.addToCart(productToAdd);
+      if (response.success) {
+        const updatedCart = await cartService.getCart();
+        if (updatedCart.success && updatedCart.data) {
+          setCart(updatedCart.data);
+        }
+      } else if (response.error) {
+        setError(response.error);
       }
-      
-      // Sepet özetini hesapla
-      const summary = calculateCartSummary(currentItems);
-      
-      // State'i güncelle
-      setState({
-        items: currentItems,
-        summary,
-        isLoading: false,
-        error: null
-      });
-      
-      // Local storage'a kaydet
-      saveCartToStorage(currentItems);
-      
-      return { success: true };
-    } catch (error) {
-      setState(prev => ({ 
-        ...prev, 
-        isLoading: false, 
-        error: 'Sepete ürün eklerken bir hata oluştu' 
-      }));
-      
-      return { success: false, error: 'Sepete ürün eklerken bir hata oluştu' };
+    } catch (err) {
+      setError('Ürün sepete eklenirken bir hata oluştu.');
+      console.error('Sepete ekleme hatası:', err);
+    } finally {
+      setIsLoading(false);
     }
-  }, [state.items, calculateCartSummary, saveCartToStorage]);
+  };
 
-  // Sepetteki ürün miktarını güncelleme
-  const updateCartItem = useCallback(async (request: UpdateCartItemRequest) => {
-    setState(prev => ({ ...prev, isLoading: true }));
-    
+  /**
+   * Sepet ürün miktarını güncelleme
+   */
+  const updateCartItem = async (itemId: string, quantity: number): Promise<void> => {
+    setIsLoading(true);
+    setError(null);
     try {
-      const { cartItemId, quantity } = request;
-      
-      // Mevcut sepeti al
-      const currentItems = [...state.items];
-      
-      // Güncellenecek ürünü bul
-      const itemIndex = currentItems.findIndex(item => item.id === cartItemId);
-      
-      if (itemIndex === -1) {
-        throw new Error('Güncellenecek ürün bulunamadı');
+      const response = await cartService.updateCartItem(itemId, quantity);
+      if (response.success) {
+        const updatedCart = await cartService.getCart();
+        if (updatedCart.success && updatedCart.data) {
+          setCart(updatedCart.data);
+        }
+      } else if (response.error) {
+        setError(response.error);
       }
-      
-      if (quantity <= 0) {
-        // Eğer miktar 0 veya daha az ise, ürünü sepetten kaldır
-        currentItems.splice(itemIndex, 1);
-      } else {
-        // Miktarı güncelle, maximum değeri aşmamasını sağla
-        currentItems[itemIndex] = {
-          ...currentItems[itemIndex],
-          quantity: Math.min(quantity, currentItems[itemIndex].maxQuantity)
-        };
-      }
-      
-      // Sepet özetini hesapla
-      const summary = calculateCartSummary(currentItems);
-      
-      // State'i güncelle
-      setState({
-        items: currentItems,
-        summary,
-        isLoading: false,
-        error: null
-      });
-      
-      // Local storage'a kaydet
-      saveCartToStorage(currentItems);
-      
-      return { success: true };
-    } catch (error) {
-      setState(prev => ({ 
-        ...prev, 
-        isLoading: false, 
-        error: 'Sepet güncellenirken bir hata oluştu' 
-      }));
-      
-      return { success: false, error: 'Sepet güncellenirken bir hata oluştu' };
+    } catch (err) {
+      setError('Sepet güncellenirken bir hata oluştu.');
+      console.error('Sepet güncelleme hatası:', err);
+    } finally {
+      setIsLoading(false);
     }
-  }, [state.items, calculateCartSummary, saveCartToStorage]);
+  };
 
-  // Sepetten ürün kaldırma
-  const removeFromCart = useCallback(async (request: RemoveFromCartRequest) => {
-    setState(prev => ({ ...prev, isLoading: true }));
-    
+  /**
+   * Sepetten ürün çıkarma
+   */
+  const removeFromCart = async (itemId: string): Promise<void> => {
+    setIsLoading(true);
+    setError(null);
     try {
-      const { cartItemId } = request;
-      
-      // Mevcut sepetten ürünü kaldır
-      const updatedItems = state.items.filter(item => item.id !== cartItemId);
-      
-      // Sepet özetini hesapla
-      const summary = calculateCartSummary(updatedItems);
-      
-      // State'i güncelle
-      setState({
-        items: updatedItems,
-        summary,
-        isLoading: false,
-        error: null
-      });
-      
-      // Local storage'a kaydet
-      saveCartToStorage(updatedItems);
-      
-      return { success: true };
-    } catch (error) {
-      setState(prev => ({ 
-        ...prev, 
-        isLoading: false, 
-        error: 'Sepetten ürün kaldırılırken bir hata oluştu' 
-      }));
-      
-      return { success: false, error: 'Sepetten ürün kaldırılırken bir hata oluştu' };
+      const response = await cartService.removeFromCart(itemId);
+      if (response.success) {
+        const updatedCart = await cartService.getCart();
+        if (updatedCart.success && updatedCart.data) {
+          setCart(updatedCart.data);
+        }
+      } else if (response.error) {
+        setError(response.error);
+      }
+    } catch (err) {
+      setError('Ürün sepetten çıkarılırken bir hata oluştu.');
+      console.error('Sepetten çıkarma hatası:', err);
+    } finally {
+      setIsLoading(false);
     }
-  }, [state.items, calculateCartSummary, saveCartToStorage]);
-  
-  // Sepeti temizleme
-  const clearCart = useCallback(async () => {
-    setState(prev => ({ ...prev, isLoading: true }));
-    
+  };
+
+  /**
+   * Sepeti temizleme
+   */
+  const clearCart = async (): Promise<void> => {
+    setIsLoading(true);
+    setError(null);
     try {
-      // State'i güncelle
-      setState({
-        items: [],
-        summary: defaultCartSummary,
-        isLoading: false,
-        error: null
-      });
-      
-      // Local storage'ı temizle
-      localStorage.removeItem('cart');
-      
-      return { success: true };
-    } catch (error) {
-      setState(prev => ({ 
-        ...prev, 
-        isLoading: false, 
-        error: 'Sepet temizlenirken bir hata oluştu' 
-      }));
-      
-      return { success: false, error: 'Sepet temizlenirken bir hata oluştu' };
+      const response = await cartService.clearCart();
+      if (response.success) {
+        setCart({ items: [] });
+      } else if (response.error) {
+        setError(response.error);
+      }
+    } catch (err) {
+      setError('Sepet temizlenirken bir hata oluştu.');
+      console.error('Sepet temizleme hatası:', err);
+    } finally {
+      setIsLoading(false);
     }
-  }, []);
+  };
 
   return {
-    ...state,
+    cart,
+    cartSummary,
+    isLoading,
+    error,
     addToCart,
     updateCartItem,
     removeFromCart,
     clearCart
   };
-}
+};
