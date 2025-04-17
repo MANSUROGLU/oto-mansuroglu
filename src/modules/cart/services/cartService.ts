@@ -1,259 +1,245 @@
-import { supabase } from '@/lib/supabase';
 import { Cart, CartApiResponse, CartItem } from '../types';
-import { v4 as uuidv4 } from 'uuid';
 
 /**
- * Sepet servisi - Sepet işlemleri için API entegrasyonu
+ * Sepet işlemleri için servis sınıfı
  */
-class CartService {
-  private userId: string | null = null;
-  private tempCartId: string | null = null;
-
-  constructor() {
-    // Tarayıcı tarafında çalışıyor muyuz kontrol et
-    if (typeof window !== 'undefined') {
-      // Temp cart ID'yi localStorage'dan al veya oluştur
-      this.tempCartId = localStorage.getItem('tempCartId');
-      if (!this.tempCartId) {
-        this.tempCartId = uuidv4();
-        localStorage.setItem('tempCartId', this.tempCartId);
-      }
-    }
-  }
+export class CartService {
+  private readonly CART_KEY = 'fordparts_cart';
+  private readonly API_URL = '/api/cart';
 
   /**
-   * Kullanıcı ID'sini ayarlar
+   * Kullanıcı sepetini getir
+   * Önce localStorage kontrolü, yoksa API'dan getir
    */
-  setUserId(userId: string): void {
-    this.userId = userId;
-  }
-
-  /**
-   * Sepetin hangi ID ile ilişkilendirileceğini belirler
-   */
-  private getCartIdentifier(): string {
-    return this.userId || this.tempCartId || 'anonymous';
-  }
-
-  /**
-   * Sepeti getir
-   */
-  async getCart(): Promise<CartApiResponse<Cart>> {
+  async getCart(): Promise<CartApiResponse> {
     try {
-      const cartId = this.getCartIdentifier();
+      // Oturum açmış kullanıcı için API'dan getir
+      if (this.isAuthenticated()) {
+        const response = await fetch(this.API_URL);
+        if (!response.ok) {
+          throw new Error('Sepet verileri getirilemedi');
+        }
+        return await response.json();
+      } 
       
-      const { data, error } = await supabase
-        .from('carts')
-        .select('*, cart_items(*)')
-        .eq('owner_id', cartId)
-        .single();
-
-      if (error && error.code !== 'PGRST116') { // PGRST116: no rows returned
-        console.error('Sepet getirme hatası:', error);
-        return { success: false, error: 'Sepet yüklenemedi.' };
+      // Misafir kullanıcı için localStorage'dan getir
+      const storedCart = localStorage.getItem(this.CART_KEY);
+      if (storedCart) {
+        return {
+          success: true,
+          data: JSON.parse(storedCart) as Cart
+        };
       }
-
-      if (!data) {
-        // Sepet yok, boş sepet döndür
-        return { success: true, data: { items: [] } };
-      }
-
-      // Veriyi istediğimiz formata dönüştür
-      const cartItems: CartItem[] = data.cart_items.map((item: any) => ({
-        id: item.id,
-        partNumber: item.part_number,
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-        imageUrl: item.image_url,
-        modelFitment: item.model_fitment || []
-      }));
-
+      
+      // Sepet bulunamadı, boş sepet döndür
       return {
         success: true,
-        data: {
-          id: data.id,
-          items: cartItems,
-          createdAt: data.created_at,
-          updatedAt: data.updated_at
-        }
+        data: { id: 'guest', items: [], userId: 'guest' }
       };
     } catch (error) {
-      console.error('Sepet getirme hatası:', error);
-      return { success: false, error: 'Sepet yüklenirken bir hata oluştu.' };
+      return {
+        success: false,
+        error: 'Sepet yüklenirken bir hata oluştu'
+      };
     }
   }
 
   /**
    * Sepete ürün ekle
    */
-  async addToCart(item: CartItem): Promise<CartApiResponse<null>> {
+  async addToCart(item: CartItem): Promise<CartApiResponse> {
     try {
-      const cartId = this.getCartIdentifier();
-      
-      // Önce cart var mı kontrol et
-      let { data: cart, error: cartError } = await supabase
-        .from('carts')
-        .select('id')
-        .eq('owner_id', cartId)
-        .single();
-      
-      // Sepet yoksa oluştur
-      if (cartError && cartError.code === 'PGRST116') {
-        const { data: newCart, error: createError } = await supabase
-          .from('carts')
-          .insert({ owner_id: cartId })
-          .select('id')
-          .single();
-          
-        if (createError) {
-          console.error('Sepet oluşturma hatası:', createError);
-          return { success: false, error: 'Sepet oluşturulamadı.' };
+      if (this.isAuthenticated()) {
+        // Oturum açmış kullanıcı için API'ya gönder
+        const response = await fetch(this.API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ item }),
+        });
+        
+        if (!response.ok) {
+          throw new Error('Ürün sepete eklenemedi');
         }
         
-        cart = newCart;
-      } else if (cartError) {
-        console.error('Sepet sorgulama hatası:', cartError);
-        return { success: false, error: 'Sepet sorgulanamadı.' };
-      }
-      
-      // Ürün zaten sepette var mı kontrol et
-      const { data: existingItem, error: existingItemError } = await supabase
-        .from('cart_items')
-        .select('id, quantity')
-        .eq('cart_id', cart.id)
-        .eq('part_number', item.partNumber)
-        .single();
-        
-      if (existingItemError && existingItemError.code !== 'PGRST116') {
-        console.error('Sepet ürün kontrolü hatası:', existingItemError);
-        return { success: false, error: 'Sepet ürünleri kontrol edilemedi.' };
-      }
-      
-      if (existingItem) {
-        // Ürün zaten var, miktarı güncelle
-        const newQuantity = existingItem.quantity + item.quantity;
-        
-        const { error: updateError } = await supabase
-          .from('cart_items')
-          .update({ quantity: newQuantity })
-          .eq('id', existingItem.id);
-          
-        if (updateError) {
-          console.error('Sepet güncellemesi hatası:', updateError);
-          return { success: false, error: 'Sepet güncellenemedi.' };
-        }
+        return await response.json();
       } else {
-        // Yeni ürün ekle
-        const { error: insertError } = await supabase
-          .from('cart_items')
-          .insert({
-            cart_id: cart.id,
-            part_number: item.partNumber,
-            name: item.name,
-            price: item.price,
-            quantity: item.quantity,
-            image_url: item.imageUrl,
-            model_fitment: item.modelFitment
-          });
-          
-        if (insertError) {
-          console.error('Sepete ürün ekleme hatası:', insertError);
-          return { success: false, error: 'Ürün sepete eklenemedi.' };
+        // Misafir kullanıcı için localStorage'a kaydet
+        const currentCart = await this.getLocalCart();
+        const existingItemIndex = currentCart.items.findIndex(i => i.id === item.id);
+        
+        if (existingItemIndex > -1) {
+          // Eğer ürün zaten sepette varsa miktarını artır
+          currentCart.items[existingItemIndex].quantity += item.quantity;
+        } else {
+          // Yeni ürünü sepete ekle
+          currentCart.items.push(item);
         }
+        
+        this.saveLocalCart(currentCart);
+        
+        return {
+          success: true,
+          data: currentCart
+        };
       }
-      
-      return { success: true, data: null };
     } catch (error) {
-      console.error('Sepete ekleme hatası:', error);
-      return { success: false, error: 'Ürün sepete eklenirken bir hata oluştu.' };
+      return {
+        success: false,
+        error: 'Ürün sepete eklenirken bir hata oluştu'
+      };
     }
   }
 
   /**
-   * Sepet öğesini güncelle
+   * Sepetteki ürün miktarını güncelle
    */
-  async updateCartItem(itemId: string, quantity: number): Promise<CartApiResponse<null>> {
+  async updateCartItem(itemId: string, quantity: number): Promise<CartApiResponse> {
     try {
-      if (quantity <= 0) {
-        return this.removeFromCart(itemId);
-      }
-      
-      const { error } = await supabase
-        .from('cart_items')
-        .update({ quantity })
-        .eq('id', itemId);
+      if (this.isAuthenticated()) {
+        // Oturum açmış kullanıcı için API'ya gönder
+        const response = await fetch(`${this.API_URL}/item/${itemId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ quantity }),
+        });
         
-      if (error) {
-        console.error('Sepet güncelleme hatası:', error);
-        return { success: false, error: 'Ürün güncellenemedi.' };
+        if (!response.ok) {
+          throw new Error('Ürün miktarı güncellenemedi');
+        }
+        
+        return await response.json();
+      } else {
+        // Misafir kullanıcı için localStorage'ı güncelle
+        const currentCart = await this.getLocalCart();
+        const itemIndex = currentCart.items.findIndex(i => i.id === itemId);
+        
+        if (itemIndex === -1) {
+          return {
+            success: false,
+            error: 'Ürün sepette bulunamadı'
+          };
+        }
+        
+        currentCart.items[itemIndex].quantity = quantity;
+        this.saveLocalCart(currentCart);
+        
+        return {
+          success: true,
+          data: currentCart
+        };
       }
-      
-      return { success: true, data: null };
     } catch (error) {
-      console.error('Sepet güncelleme hatası:', error);
-      return { success: false, error: 'Ürün güncellenirken bir hata oluştu.' };
+      return {
+        success: false,
+        error: 'Ürün miktarı güncellenirken bir hata oluştu'
+      };
     }
   }
 
   /**
-   * Sepetten öğe çıkar
+   * Sepetten ürün kaldır
    */
-  async removeFromCart(itemId: string): Promise<CartApiResponse<null>> {
+  async removeFromCart(itemId: string): Promise<CartApiResponse> {
     try {
-      const { error } = await supabase
-        .from('cart_items')
-        .delete()
-        .eq('id', itemId);
+      if (this.isAuthenticated()) {
+        // Oturum açmış kullanıcı için API'ya gönder
+        const response = await fetch(`${this.API_URL}/item/${itemId}`, {
+          method: 'DELETE',
+        });
         
-      if (error) {
-        console.error('Sepetten çıkarma hatası:', error);
-        return { success: false, error: 'Ürün sepetten çıkarılamadı.' };
+        if (!response.ok) {
+          throw new Error('Ürün sepetten kaldırılamadı');
+        }
+        
+        return await response.json();
+      } else {
+        // Misafir kullanıcı için localStorage'ı güncelle
+        const currentCart = await this.getLocalCart();
+        const updatedItems = currentCart.items.filter(i => i.id !== itemId);
+        
+        currentCart.items = updatedItems;
+        this.saveLocalCart(currentCart);
+        
+        return {
+          success: true,
+          data: currentCart
+        };
       }
-      
-      return { success: true, data: null };
     } catch (error) {
-      console.error('Sepetten çıkarma hatası:', error);
-      return { success: false, error: 'Ürün sepetten çıkarılırken bir hata oluştu.' };
+      return {
+        success: false,
+        error: 'Ürün sepetten kaldırılırken bir hata oluştu'
+      };
     }
   }
 
   /**
    * Sepeti temizle
    */
-  async clearCart(): Promise<CartApiResponse<null>> {
+  async clearCart(): Promise<CartApiResponse> {
     try {
-      const cartId = this.getCartIdentifier();
-      
-      const { data: cart, error: cartError } = await supabase
-        .from('carts')
-        .select('id')
-        .eq('owner_id', cartId)
-        .single();
+      if (this.isAuthenticated()) {
+        // Oturum açmış kullanıcı için API'ya gönder
+        const response = await fetch(this.API_URL, {
+          method: 'DELETE',
+        });
         
-      if (cartError && cartError.code !== 'PGRST116') {
-        console.error('Sepet sorgulama hatası:', cartError);
-        return { success: false, error: 'Sepet sorgulanamadı.' };
-      }
-      
-      if (cart) {
-        const { error } = await supabase
-          .from('cart_items')
-          .delete()
-          .eq('cart_id', cart.id);
-          
-        if (error) {
-          console.error('Sepet temizleme hatası:', error);
-          return { success: false, error: 'Sepet temizlenemedi.' };
+        if (!response.ok) {
+          throw new Error('Sepet temizlenemedi');
         }
+        
+        return await response.json();
+      } else {
+        // Misafir kullanıcı için localStorage'ı temizle
+        const emptyCart: Cart = { id: 'guest', items: [], userId: 'guest' };
+        this.saveLocalCart(emptyCart);
+        
+        return {
+          success: true,
+          data: emptyCart
+        };
       }
-      
-      return { success: true, data: null };
     } catch (error) {
-      console.error('Sepet temizleme hatası:', error);
-      return { success: false, error: 'Sepet temizlenirken bir hata oluştu.' };
+      return {
+        success: false,
+        error: 'Sepet temizlenirken bir hata oluştu'
+      };
     }
+  }
+
+  /**
+   * LocalStorage'dan sepeti getir
+   */
+  private async getLocalCart(): Promise<Cart> {
+    const storedCart = localStorage.getItem(this.CART_KEY);
+    
+    if (storedCart) {
+      return JSON.parse(storedCart) as Cart;
+    }
+    
+    return { id: 'guest', items: [], userId: 'guest' };
+  }
+
+  /**
+   * Sepeti LocalStorage'a kaydet
+   */
+  private saveLocalCart(cart: Cart): void {
+    localStorage.setItem(this.CART_KEY, JSON.stringify(cart));
+  }
+
+  /**
+   * Kullanıcının oturum açıp açmadığını kontrol et
+   * (Auth servisi ile entegre edilecek)
+   */
+  private isAuthenticated(): boolean {
+    // Bu method Auth servisi ile entegre edilecek
+    // Şimdilik false dönüyoruz (localStorage kullanımı için)
+    return false;
   }
 }
 
-export const cartService = new CartService();
+export default CartService;
