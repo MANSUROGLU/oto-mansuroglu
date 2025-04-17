@@ -1,90 +1,94 @@
-import { useState, useEffect, useCallback } from 'react';
-import { CartItem } from '../types';
-import { 
-  addItemToCart, 
-  removeItemFromCart, 
-  updateItemQuantity, 
-  saveCartToLocalStorage, 
-  loadCartFromLocalStorage 
-} from '../utils/cartUtils';
-import { 
-  calculateSubtotal, 
-  calculateTax, 
-  calculateShipping, 
-  calculateTotal 
-} from '../utils/cartCalculations';
+import { useState, useEffect } from 'react';
+import { Cart, CartItem } from '../types';
 
-export interface UseCartReturn {
-  items: CartItem[];
-  isEmpty: boolean;
-  totalItems: number;
-  subtotal: number;
-  tax: number;
-  shipping: number;
-  total: number;
-  addItem: (item: Omit<CartItem, 'id'>) => void;
-  removeItem: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
-  clearCart: () => void;
-}
+const CART_STORAGE_KEY = 'ford-yedek-parca-cart';
 
 /**
- * Sepet işlemlerini yönetmek için kullanılan hook
+ * Custom hook to manage cart state and operations
  */
-export const useCart = (): UseCartReturn => {
-  const [items, setItems] = useState<CartItem[]>([]);
-  
-  // Component mount olduğunda local storage'dan sepeti yükle
-  useEffect(() => {
-    const storedCart = loadCartFromLocalStorage();
-    if (storedCart.length > 0) {
-      setItems(storedCart);
+export const useCart = () => {
+  // Initialize cart state from localStorage or empty cart
+  const [cart, setCart] = useState<Cart>(() => {
+    if (typeof window === 'undefined') {
+      return { items: [] };
     }
-  }, []);
-  
-  // Sepet değiştiğinde local storage'a kaydet
+    
+    const savedCart = localStorage.getItem(CART_STORAGE_KEY);
+    return savedCart ? JSON.parse(savedCart) : { items: [] };
+  });
+
+  // Save cart to localStorage whenever it changes
   useEffect(() => {
-    saveCartToLocalStorage(items);
-  }, [items]);
-  
-  // Sepete ürün ekleme
-  const addItem = useCallback((item: Omit<CartItem, 'id'>) => {
-    setItems(prevItems => addItemToCart(prevItems, item));
-  }, []);
-  
-  // Sepetten ürün çıkarma
-  const removeItem = useCallback((productId: string) => {
-    setItems(prevItems => removeItemFromCart(prevItems, productId));
-  }, []);
-  
-  // Sepetteki ürün miktarını güncelleme
-  const updateQuantity = useCallback((productId: string, quantity: number) => {
-    setItems(prevItems => updateItemQuantity(prevItems, productId, quantity));
-  }, []);
-  
-  // Sepeti temizleme
-  const clearCart = useCallback(() => {
-    setItems([]);
-  }, []);
-  
-  // Hesaplamalar
-  const totalItems = items.reduce((total, item) => total + item.quantity, 0);
-  const subtotal = calculateSubtotal(items);
-  const tax = calculateTax(subtotal);
-  const shipping = calculateShipping(items);
-  const total = calculateTotal(subtotal, tax, shipping);
-  
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+    }
+  }, [cart]);
+
+  /**
+   * Add an item to the cart
+   */
+  const addItem = (item: CartItem) => {
+    setCart(prevCart => {
+      const existingItemIndex = prevCart.items.findIndex(
+        cartItem => cartItem.id === item.id
+      );
+
+      if (existingItemIndex > -1) {
+        // Item already exists, update quantity
+        const newItems = [...prevCart.items];
+        newItems[existingItemIndex] = {
+          ...newItems[existingItemIndex],
+          quantity: newItems[existingItemIndex].quantity + item.quantity
+        };
+        return { ...prevCart, items: newItems };
+      } else {
+        // Item doesn't exist, add it
+        return { ...prevCart, items: [...prevCart.items, item] };
+      }
+    });
+  };
+
+  /**
+   * Remove an item from the cart
+   */
+  const removeItem = (itemId: string) => {
+    setCart(prevCart => ({
+      ...prevCart,
+      items: prevCart.items.filter(item => item.id !== itemId)
+    }));
+  };
+
+  /**
+   * Update the quantity of an item in the cart
+   */
+  const updateItemQuantity = (itemId: string, quantity: number) => {
+    if (quantity < 1) {
+      removeItem(itemId);
+      return;
+    }
+
+    setCart(prevCart => ({
+      ...prevCart,
+      items: prevCart.items.map(item => 
+        item.id === itemId ? { ...item, quantity } : item
+      )
+    }));
+  };
+
+  /**
+   * Clear all items from the cart
+   */
+  const clearCart = () => {
+    setCart({ items: [] });
+  };
+
   return {
-    items,
-    isEmpty: items.length === 0,
-    totalItems,
-    subtotal,
-    tax,
-    shipping,
-    total,
+    cart,
     addItem,
     removeItem,
-    updateQuantity,
-    clearCart,
+    updateItemQuantity,
+    clearCart
   };
 };
+
+export default useCart;
