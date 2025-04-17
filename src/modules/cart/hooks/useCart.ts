@@ -1,374 +1,300 @@
+import { useCallback, useEffect, useState } from 'react';
+import { 
+  AddToCartRequest, 
+  CartItem, 
+  CartState, 
+  CartSummary,
+  UpdateCartItemRequest, 
+  RemoveFromCartRequest 
+} from '../types';
+
+// Mock varsayılan sepet özeti
+const defaultCartSummary: CartSummary = {
+  itemCount: 0,
+  totalItems: 0,
+  subtotal: 0,
+  discountAmount: 0,
+  shippingCost: 0,
+  total: 0,
+  freeShippingThreshold: 2000, // 2000 TL üzeri ücretsiz kargo
+};
+
 /**
- * useCart hook
- * Sepet işlemleri için React hook'u
+ * Sepet işlevselliğini sağlayan özel hook
+ * 
+ * Sepet öğelerini yerel depolamadan yükler ve API ile senkronize eder
  */
-
-import { useState, useEffect, useCallback } from 'react';
-import { useSupabaseClient } from '@supabase/auth-helpers-react';
-import { useToast } from '@/components/ui/use-toast';
-import { Cart, CartItem, AddToCartResponse, UpdateCartResponse, RemoveFromCartResponse, ClearCartResponse, ApplyCouponResponse } from '../types';
-import { Product } from '@/modules/products/types';
-
-const CART_STORAGE_KEY = 'fordPartsCart';
-
 export function useCart() {
-  const [cart, setCart] = useState<Cart | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const supabase = useSupabaseClient();
-  const { toast } = useToast();
+  const [state, setState] = useState<CartState>({
+    items: [],
+    summary: defaultCartSummary,
+    isLoading: true,
+    error: null,
+  });
 
-  // Sepeti lokalden yükle
+  // Sepet verilerini local storage ve API'den yükle
   useEffect(() => {
     const loadCart = async () => {
+      setState(prev => ({ ...prev, isLoading: true }));
+      
       try {
-        const savedCart = localStorage.getItem(CART_STORAGE_KEY);
-        if (savedCart) {
-          setCart(JSON.parse(savedCart));
+        // TODO: API'den sepet verilerini al
+        // Şimdilik local storage'den yükleme simülasyonu yapıyoruz
+        const storedCart = localStorage.getItem('cart');
+        
+        if (storedCart) {
+          const { items } = JSON.parse(storedCart);
+          const summary = calculateCartSummary(items);
+          
+          setState({
+            items,
+            summary,
+            isLoading: false,
+            error: null,
+          });
         } else {
-          // Yeni sepet oluştur
-          createEmptyCart();
+          setState({
+            items: [],
+            summary: defaultCartSummary,
+            isLoading: false,
+            error: null,
+          });
         }
       } catch (error) {
-        console.error('Sepet yüklenirken hata oluştu:', error);
-        createEmptyCart();
+        setState(prev => ({ 
+          ...prev, 
+          isLoading: false, 
+          error: 'Sepet yüklenirken bir hata oluştu' 
+        }));
       }
     };
 
     loadCart();
   }, []);
 
-  // Sepeti kaydet
-  useEffect(() => {
-    if (cart) {
-      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
-    }
-  }, [cart]);
-
-  // Boş sepet oluştur
-  const createEmptyCart = useCallback(() => {
-    const emptyCart: Cart = {
-      id: `cart_${Date.now()}`,
-      userId: null,
-      items: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      subtotal: 0,
-      tax: 0,
-      shipping: 0,
-      total: 0
-    };
-    setCart(emptyCart);
-    return emptyCart;
-  }, []);
-
-  // Sepet toplamlarını hesapla
-  const calculateCartTotals = useCallback((items: CartItem[]) => {
-    const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    const tax = subtotal * 0.18; // %18 KDV
-    const shipping = subtotal > 1000 ? 0 : 50; // 1000 TL üzeri kargo bedava
-    const total = subtotal + tax + shipping;
-
-    return { subtotal, tax, shipping, total };
-  }, []);
-
-  // Sepete ürün ekle
-  const addToCart = useCallback(async (product: Product, quantity: number = 1): Promise<AddToCartResponse> => {
-    try {
-      setIsLoading(true);
-      
-      let currentCart = cart || createEmptyCart();
-      const existingItemIndex = currentCart.items.findIndex(item => item.productId === product.id);
-      
-      if (existingItemIndex >= 0) {
-        // Ürün zaten sepette, miktarı güncelle
-        const updatedItems = [...currentCart.items];
-        updatedItems[existingItemIndex].quantity += quantity;
-        
-        const { subtotal, tax, shipping, total } = calculateCartTotals(updatedItems);
-        
-        const updatedCart: Cart = {
-          ...currentCart,
-          items: updatedItems,
-          updatedAt: new Date().toISOString(),
-          subtotal,
-          tax,
-          shipping,
-          total
-        };
-        
-        setCart(updatedCart);
-        
-        toast({
-          title: "Ürün güncellendi",
-          description: `${product.name} ürününün miktarı güncellendi.`,
-          variant: "default",
-        });
-        
-        return {
-          success: true,
-          message: 'Ürün sepete eklendi',
-          cart: updatedCart
-        };
-      } else {
-        // Yeni ürün ekle
-        const newItem: CartItem = {
-          id: `item_${Date.now()}`,
-          productId: product.id,
-          quantity,
-          price: product.price,
-          product: product
-        };
-        
-        const updatedItems = [...currentCart.items, newItem];
-        const { subtotal, tax, shipping, total } = calculateCartTotals(updatedItems);
-        
-        const updatedCart: Cart = {
-          ...currentCart,
-          items: updatedItems,
-          updatedAt: new Date().toISOString(),
-          subtotal,
-          tax,
-          shipping,
-          total
-        };
-        
-        setCart(updatedCart);
-        
-        toast({
-          title: "Ürün eklendi",
-          description: `${product.name} sepete eklendi.`,
-          variant: "default",
-        });
-        
-        return {
-          success: true,
-          message: 'Ürün sepete eklendi',
-          cart: updatedCart
-        };
-      }
-    } catch (error) {
-      console.error('Sepete eklenirken hata oluştu:', error);
-      toast({
-        title: "Hata",
-        description: "Ürün sepete eklenirken bir hata oluştu.",
-        variant: "destructive",
-      });
-      return {
-        success: false,
-        message: 'Ürün sepete eklenirken hata oluştu',
-        error: error instanceof Error ? error.message : 'Bilinmeyen hata'
-      };
-    } finally {
-      setIsLoading(false);
-    }
-  }, [cart, createEmptyCart, calculateCartTotals, toast]);
-
-  // Sepetteki ürünü güncelle
-  const updateCartItem = useCallback(async (itemId: string, quantity: number): Promise<UpdateCartResponse> => {
-    try {
-      setIsLoading(true);
-      
-      if (!cart) {
-        return {
-          success: false,
-          message: 'Sepet bulunamadı',
-          error: 'Cart not found'
-        };
-      }
-      
-      const itemIndex = cart.items.findIndex(item => item.id === itemId);
-      
-      if (itemIndex === -1) {
-        return {
-          success: false,
-          message: 'Ürün sepette bulunamadı',
-          error: 'Item not found in cart'
-        };
-      }
-      
-      const updatedItems = [...cart.items];
-      
-      if (quantity <= 0) {
-        // Miktar 0 veya negatifse ürünü sepetten kaldır
-        updatedItems.splice(itemIndex, 1);
-      } else {
-        // Ürün miktarını güncelle
-        updatedItems[itemIndex].quantity = quantity;
-      }
-      
-      const { subtotal, tax, shipping, total } = calculateCartTotals(updatedItems);
-      
-      const updatedCart: Cart = {
-        ...cart,
-        items: updatedItems,
-        updatedAt: new Date().toISOString(),
-        subtotal,
-        tax,
-        shipping,
-        total
-      };
-      
-      setCart(updatedCart);
-      
-      const productName = quantity <= 0 
-        ? cart.items[itemIndex].product.name 
-        : updatedItems[itemIndex].product.name;
-      
-      toast({
-        title: quantity <= 0 ? "Ürün kaldırıldı" : "Ürün güncellendi",
-        description: quantity <= 0 
-          ? `${productName} sepetten kaldırıldı.` 
-          : `${productName} miktarı güncellendi.`,
-        variant: "default",
-      });
-      
-      return {
-        success: true,
-        message: quantity <= 0 ? 'Ürün sepetten kaldırıldı' : 'Ürün miktarı güncellendi',
-        cart: updatedCart
-      };
-    } catch (error) {
-      console.error('Sepet güncellenirken hata oluştu:', error);
-      toast({
-        title: "Hata",
-        description: "Sepet güncellenirken bir hata oluştu.",
-        variant: "destructive",
-      });
-      return {
-        success: false,
-        message: 'Sepet güncellenirken hata oluştu',
-        error: error instanceof Error ? error.message : 'Bilinmeyen hata'
-      };
-    } finally {
-      setIsLoading(false);
-    }
-  }, [cart, calculateCartTotals, toast]);
-
-  // Sepetten ürün kaldır
-  const removeFromCart = useCallback(async (itemId: string): Promise<RemoveFromCartResponse> => {
-    try {
-      setIsLoading(true);
-      
-      if (!cart) {
-        return {
-          success: false,
-          message: 'Sepet bulunamadı',
-          error: 'Cart not found'
-        };
-      }
-      
-      const itemIndex = cart.items.findIndex(item => item.id === itemId);
-      
-      if (itemIndex === -1) {
-        return {
-          success: false,
-          message: 'Ürün sepette bulunamadı',
-          error: 'Item not found in cart'
-        };
-      }
-      
-      const productName = cart.items[itemIndex].product.name;
-      const updatedItems = cart.items.filter(item => item.id !== itemId);
-      const { subtotal, tax, shipping, total } = calculateCartTotals(updatedItems);
-      
-      const updatedCart: Cart = {
-        ...cart,
-        items: updatedItems,
-        updatedAt: new Date().toISOString(),
-        subtotal,
-        tax,
-        shipping,
-        total
-      };
-      
-      setCart(updatedCart);
-      
-      toast({
-        title: "Ürün kaldırıldı",
-        description: `${productName} sepetten kaldırıldı.`,
-        variant: "default",
-      });
-      
-      return {
-        success: true,
-        message: 'Ürün sepetten kaldırıldı',
-        cart: updatedCart
-      };
-    } catch (error) {
-      console.error('Sepetten ürün kaldırılırken hata oluştu:', error);
-      toast({
-        title: "Hata",
-        description: "Ürün sepetten kaldırılırken bir hata oluştu.",
-        variant: "destructive",
-      });
-      return {
-        success: false,
-        message: 'Ürün sepetten kaldırılırken hata oluştu',
-        error: error instanceof Error ? error.message : 'Bilinmeyen hata'
-      };
-    } finally {
-      setIsLoading(false);
-    }
-  }, [cart, calculateCartTotals, toast]);
-
-  // Sepeti temizle
-  const clearCart = useCallback(async (): Promise<ClearCartResponse> => {
-    try {
-      setIsLoading(true);
-      
-      createEmptyCart();
-      
-      toast({
-        title: "Sepet temizlendi",
-        description: "Tüm ürünler sepetten kaldırıldı.",
-        variant: "default",
-      });
-      
-      return {
-        success: true,
-        message: 'Sepet temizlendi'
-      };
-    } catch (error) {
-      console.error('Sepet temizlenirken hata oluştu:', error);
-      toast({
-        title: "Hata",
-        description: "Sepet temizlenirken bir hata oluştu.",
-        variant: "destructive",
-      });
-      return {
-        success: false,
-        message: 'Sepet temizlenirken hata oluştu',
-        error: error instanceof Error ? error.message : 'Bilinmeyen hata'
-      };
-    } finally {
-      setIsLoading(false);
-    }
-  }, [createEmptyCart, toast]);
-
-  // Sepet özeti
-  const getCartSummary = useCallback(() => {
-    if (!cart) return null;
+  // Sepet özeti hesaplama fonksiyonu
+  const calculateCartSummary = useCallback((items: CartItem[]): CartSummary => {
+    const itemCount = items.length;
+    const totalItems = items.reduce((total, item) => total + item.quantity, 0);
+    const subtotal = items.reduce((total, item) => total + (item.price * item.quantity), 0);
     
-    const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
+    // Şimdilik sabit indirim ve kargo ücreti (ileride daha karmaşık olabilir)
+    const discountAmount = 0; // İndirim yok varsayılan olarak
+    let shippingCost = subtotal >= defaultCartSummary.freeShippingThreshold ? 0 : 99.90;
+    
+    const total = subtotal - discountAmount + shippingCost;
     
     return {
       itemCount,
-      subtotal: cart.subtotal,
-      tax: cart.tax,
-      shipping: cart.shipping,
-      total: cart.total,
-      discounts: [],
-      totalWithDiscounts: cart.total // Şimdilik indirim yok
+      totalItems,
+      subtotal,
+      discountAmount,
+      shippingCost,
+      total,
+      freeShippingThreshold: defaultCartSummary.freeShippingThreshold,
     };
-  }, [cart]);
+  }, []);
+
+  // Sepeti local storage'a kaydet
+  const saveCartToStorage = useCallback((items: CartItem[]) => {
+    localStorage.setItem('cart', JSON.stringify({ items }));
+  }, []);
+
+  // Sepete ürün ekleme
+  const addToCart = useCallback(async (request: AddToCartRequest) => {
+    setState(prev => ({ ...prev, isLoading: true }));
+    
+    try {
+      // TODO: API entegrasyonu
+      // Şimdilik local storage simülasyonu
+      
+      const { productId, quantity } = request;
+      
+      // Mevcut sepeti al
+      const currentItems = [...state.items];
+      
+      // Ürünün zaten sepette olup olmadığını kontrol et
+      const existingItemIndex = currentItems.findIndex(item => item.productId === productId);
+      
+      if (existingItemIndex >= 0) {
+        // Eğer ürün zaten sepetteyse, miktarını güncelle
+        const updatedItem = {
+          ...currentItems[existingItemIndex],
+          quantity: Math.min(
+            currentItems[existingItemIndex].quantity + quantity,
+            currentItems[existingItemIndex].maxQuantity
+          )
+        };
+        
+        currentItems[existingItemIndex] = updatedItem;
+      } else {
+        // Eğer ürün sepette değilse, yeni ekle
+        // Not: Gerçek uygulamada bu bilgiler API'den gelecektir
+        // Bu mock veri sadece örnek amaçlıdır
+        const mockProduct = {
+          id: `cart-item-${Date.now()}`,
+          productId,
+          name: 'Örnek Ford Parçası',
+          partNumber: 'FP-12345',
+          price: 549.90,
+          quantity,
+          maxQuantity: 10,
+          brand: 'Ford',
+          imageUrl: '/images/products/sample-part.jpg'
+        };
+        
+        currentItems.push(mockProduct);
+      }
+      
+      // Sepet özetini hesapla
+      const summary = calculateCartSummary(currentItems);
+      
+      // State'i güncelle
+      setState({
+        items: currentItems,
+        summary,
+        isLoading: false,
+        error: null
+      });
+      
+      // Local storage'a kaydet
+      saveCartToStorage(currentItems);
+      
+      return { success: true };
+    } catch (error) {
+      setState(prev => ({ 
+        ...prev, 
+        isLoading: false, 
+        error: 'Sepete ürün eklerken bir hata oluştu' 
+      }));
+      
+      return { success: false, error: 'Sepete ürün eklerken bir hata oluştu' };
+    }
+  }, [state.items, calculateCartSummary, saveCartToStorage]);
+
+  // Sepetteki ürün miktarını güncelleme
+  const updateCartItem = useCallback(async (request: UpdateCartItemRequest) => {
+    setState(prev => ({ ...prev, isLoading: true }));
+    
+    try {
+      const { cartItemId, quantity } = request;
+      
+      // Mevcut sepeti al
+      const currentItems = [...state.items];
+      
+      // Güncellenecek ürünü bul
+      const itemIndex = currentItems.findIndex(item => item.id === cartItemId);
+      
+      if (itemIndex === -1) {
+        throw new Error('Güncellenecek ürün bulunamadı');
+      }
+      
+      if (quantity <= 0) {
+        // Eğer miktar 0 veya daha az ise, ürünü sepetten kaldır
+        currentItems.splice(itemIndex, 1);
+      } else {
+        // Miktarı güncelle, maximum değeri aşmamasını sağla
+        currentItems[itemIndex] = {
+          ...currentItems[itemIndex],
+          quantity: Math.min(quantity, currentItems[itemIndex].maxQuantity)
+        };
+      }
+      
+      // Sepet özetini hesapla
+      const summary = calculateCartSummary(currentItems);
+      
+      // State'i güncelle
+      setState({
+        items: currentItems,
+        summary,
+        isLoading: false,
+        error: null
+      });
+      
+      // Local storage'a kaydet
+      saveCartToStorage(currentItems);
+      
+      return { success: true };
+    } catch (error) {
+      setState(prev => ({ 
+        ...prev, 
+        isLoading: false, 
+        error: 'Sepet güncellenirken bir hata oluştu' 
+      }));
+      
+      return { success: false, error: 'Sepet güncellenirken bir hata oluştu' };
+    }
+  }, [state.items, calculateCartSummary, saveCartToStorage]);
+
+  // Sepetten ürün kaldırma
+  const removeFromCart = useCallback(async (request: RemoveFromCartRequest) => {
+    setState(prev => ({ ...prev, isLoading: true }));
+    
+    try {
+      const { cartItemId } = request;
+      
+      // Mevcut sepetten ürünü kaldır
+      const updatedItems = state.items.filter(item => item.id !== cartItemId);
+      
+      // Sepet özetini hesapla
+      const summary = calculateCartSummary(updatedItems);
+      
+      // State'i güncelle
+      setState({
+        items: updatedItems,
+        summary,
+        isLoading: false,
+        error: null
+      });
+      
+      // Local storage'a kaydet
+      saveCartToStorage(updatedItems);
+      
+      return { success: true };
+    } catch (error) {
+      setState(prev => ({ 
+        ...prev, 
+        isLoading: false, 
+        error: 'Sepetten ürün kaldırılırken bir hata oluştu' 
+      }));
+      
+      return { success: false, error: 'Sepetten ürün kaldırılırken bir hata oluştu' };
+    }
+  }, [state.items, calculateCartSummary, saveCartToStorage]);
+  
+  // Sepeti temizleme
+  const clearCart = useCallback(async () => {
+    setState(prev => ({ ...prev, isLoading: true }));
+    
+    try {
+      // State'i güncelle
+      setState({
+        items: [],
+        summary: defaultCartSummary,
+        isLoading: false,
+        error: null
+      });
+      
+      // Local storage'ı temizle
+      localStorage.removeItem('cart');
+      
+      return { success: true };
+    } catch (error) {
+      setState(prev => ({ 
+        ...prev, 
+        isLoading: false, 
+        error: 'Sepet temizlenirken bir hata oluştu' 
+      }));
+      
+      return { success: false, error: 'Sepet temizlenirken bir hata oluştu' };
+    }
+  }, []);
 
   return {
-    cart,
-    isLoading,
+    ...state,
     addToCart,
     updateCartItem,
     removeFromCart,
-    clearCart,
-    getCartSummary
+    clearCart
   };
 }
