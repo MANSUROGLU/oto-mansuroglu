@@ -1,107 +1,92 @@
 /**
- * Sepet Tipleri
- * Bu dosya, sepet modülü için tipleri tanımlar.
+ * Sepet modülü için tip tanımlamaları
  */
 
-import { Product } from '@/modules/products/types';
-
 /**
- * Sepet öğesi
+ * Sepetteki bir ürün öğesi
  */
 export interface CartItem {
   id: string;
   productId: string;
-  quantity: number;
+  name: string;
+  partNumber: string;
   price: number;
-  product: Product;
+  originalPrice?: number;
+  quantity: number;
+  maxQuantity: number;
+  brand: string;
+  imageUrl: string;
 }
 
 /**
- * Sepet
- */
-export interface Cart {
-  id: string;
-  userId?: string | null;
-  items: CartItem[];
-  createdAt: string;
-  updatedAt: string;
-  subtotal: number;
-  tax: number;
-  shipping: number;
-  total: number;
-}
-
-/**
- * Sepet özeti
+ * Sepet özeti ve fiyat bilgileri
  */
 export interface CartSummary {
   itemCount: number;
+  totalItems: number;
   subtotal: number;
-  tax: number;
-  shipping: number;
+  discountAmount: number;
+  shippingCost: number;
   total: number;
-  discounts: Discount[];
-  totalWithDiscounts: number;
+  freeShippingThreshold: number;
 }
 
 /**
- * İndirim
+ * Sepet durum bilgisi
  */
-export interface Discount {
-  id: string;
+export interface CartState {
+  items: CartItem[];
+  summary: CartSummary;
+  isLoading: boolean;
+  error: string | null;
+}
+
+/**
+ * Sepet API işlemleri için tip tanımlamaları
+ */
+export interface AddToCartRequest {
+  productId: string;
+  quantity: number;
+}
+
+export interface UpdateCartItemRequest {
+  cartItemId: string;
+  quantity: number;
+}
+
+export interface RemoveFromCartRequest {
+  cartItemId: string;
+}
+
+export interface ApplyCouponRequest {
   code: string;
-  description: string;
-  type: 'percentage' | 'fixed';
-  value: number;
-  amount: number;
 }
 
 /**
- * Sepet ekleme yanıtı
+ * Sepet API yanıtları için tip tanımlamaları
  */
+export interface GetCartResponse {
+  items: CartItem[];
+  summary: CartSummary;
+}
+
 export interface AddToCartResponse {
-  success: boolean;
-  message: string;
-  cart?: Cart;
-  error?: string;
+  newItem: CartItem;
+  summary: CartSummary;
 }
 
-/**
- * Sepet güncelleme yanıtı
- */
 export interface UpdateCartResponse {
-  success: boolean;
-  message: string;
-  cart?: Cart;
-  error?: string;
+  updatedItem: CartItem;
+  summary: CartSummary;
 }
 
-/**
- * Sepet silme yanıtı
- */
 export interface RemoveFromCartResponse {
-  success: boolean;
-  message: string;
-  cart?: Cart;
-  error?: string;
+  removedItemId: string;
+  summary: CartSummary;
 }
 
-/**
- * Sepet temizleme yanıtı
- */
-export interface ClearCartResponse {
-  success: boolean;
-  message: string;
-  error?: string;
-}
-
-/**
- * Kupon uygulama yanıtı
- */
 export interface ApplyCouponResponse {
   success: boolean;
   message: string;
-  cart?: Cart;
-  discount?: Discount;
-  error?: string;
+  summary: CartSummary;
 }
