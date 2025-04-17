@@ -4,11 +4,9 @@ export interface CartItem {
   cartId: string;
   quantity: number;
   price: number;
-  name: string;
-  image?: string | null;
-  partNumber: string;
-  createdAt: string;
-  updatedAt: string;
+  productData: any; // Ürün detayları
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Cart {
