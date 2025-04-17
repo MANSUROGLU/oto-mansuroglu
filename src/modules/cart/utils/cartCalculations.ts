@@ -1,81 +1,82 @@
-import { CartItem } from '../types';
+import { Cart } from '../types';
 
 /**
- * Sepet ara toplamını hesaplar
- * @param items Sepetteki ürünler
- * @returns Toplam fiyat
+ * Calculates the subtotal of the items in the cart
  */
-export const calculateSubtotal = (items: CartItem[]): number => {
-  return items.reduce((total, item) => total + (item.price * item.quantity), 0);
+export const calculateSubtotal = (cart: Cart): number => {
+  return cart.items.reduce((sum, item) => {
+    return sum + (item.price * item.quantity);
+  }, 0);
 };
 
 /**
- * Vergiyi hesaplar (KDV %18)
- * @param subtotal Ara toplam
- * @returns Vergi tutarı
+ * Calculates the tax amount based on the subtotal
  */
 export const calculateTax = (subtotal: number): number => {
-  const TAX_RATE = 0.18; // %18 KDV
-  return subtotal * TAX_RATE;
+  const TAX_RATE = 0.18; // 18% tax rate for Turkey
+  return Math.round(subtotal * TAX_RATE);
 };
 
 /**
- * Kargo ücretini hesaplar
- * Toplam tutar 1000 TL üzerindeyse kargo ücretsiz,
- * değilse sabit 30 TL kargo ücreti alınır
- * 
- * @param items Sepetteki ürünler
- * @returns Kargo ücreti
+ * Calculates the shipping cost based on the subtotal
  */
-export const calculateShipping = (items: CartItem[]): number => {
-  const FREE_SHIPPING_THRESHOLD = 1000; // 1000 TL üzeri ücretsiz kargo
-  const STANDARD_SHIPPING_FEE = 30; // Standart kargo ücreti 30 TL
-  
-  const subtotal = calculateSubtotal(items);
-  
-  if (subtotal >= FREE_SHIPPING_THRESHOLD) {
+export const calculateShipping = (subtotal: number): number => {
+  // Free shipping for orders above 500 TL
+  if (subtotal >= 500) {
     return 0;
   }
   
-  return STANDARD_SHIPPING_FEE;
+  // Base shipping cost
+  return 29.99;
 };
 
 /**
- * Toplam sepet tutarını hesaplar
- * @param subtotal Ara toplam
- * @param tax Vergi
- * @param shipping Kargo ücreti
- * @returns Toplam tutar
+ * Calculates the discount amount based on the discount code
+ */
+export const calculateDiscount = (subtotal: number, discountCode: string): number => {
+  // In a real application, we would validate the discount code
+  // against a database of valid codes with specific rules.
+  // For now, we'll use a simple approach:
+  
+  // Example discount codes:
+  // WELCOME10: 10% off
+  // FORD20: 20% off
+  // YEDEK15: 15% off
+  
+  const discountMap: Record<string, number> = {
+    'WELCOME10': 0.10,
+    'FORD20': 0.20,
+    'YEDEK15': 0.15,
+  };
+  
+  const discountRate = discountMap[discountCode] || 0;
+  return Math.round(subtotal * discountRate);
+};
+
+/**
+ * Calculates the total cost including tax and shipping, minus discounts
  */
 export const calculateTotal = (subtotal: number, tax: number, shipping: number): number => {
   return subtotal + tax + shipping;
 };
 
 /**
- * Sepetteki indirim tutarını hesaplar
- * @param items Sepetteki ürünler
- * @param discountCode İndirim kodu
- * @returns İndirim tutarı
+ * Formats a price in Turkish Lira
  */
-export const calculateDiscount = (
-  items: CartItem[],
-  discountCode?: string
-): number => {
-  // Burada indirim koduna göre indirim tutarını hesaplama mantığı eklenecek
-  // Şimdilik sabit bir indirim oranı kullanıyoruz
-  if (!discountCode) return 0;
-  
-  const subtotal = calculateSubtotal(items);
-  const DISCOUNT_RATE = 0.05; // %5 indirim
-  
-  return subtotal * DISCOUNT_RATE;
+export const formatPrice = (price: number): string => {
+  return `${price.toLocaleString('tr-TR')} TL`;
 };
 
 /**
- * Belirli bir ürün için toplam fiyatı hesaplar
- * @param item Sepet ürünü
- * @returns Toplam ürün fiyatı
+ * Counts the total number of items in the cart
  */
-export const calculateItemTotal = (item: CartItem): number => {
-  return item.price * item.quantity;
+export const countItems = (cart: Cart): number => {
+  return cart.items.reduce((count, item) => count + item.quantity, 0);
+};
+
+/**
+ * Checks if the cart is empty
+ */
+export const isCartEmpty = (cart: Cart): boolean => {
+  return cart.items.length === 0;
 };
