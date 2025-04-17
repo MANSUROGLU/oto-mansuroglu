@@ -2,53 +2,52 @@
  * Sepet öğesi tipi
  */
 export interface CartItem {
-  id?: string;
-  partNumber: string;
+  id: string;
+  productId: string;
   name: string;
+  partNumber: string;
   price: number;
   quantity: number;
-  imageUrl?: string;
-  modelFitment?: string[];
+  image?: string;
 }
 
 /**
  * Sepet tipi
  */
 export interface Cart {
-  id?: string;
+  id: string;
+  userId: string;
   items: CartItem[];
-  createdAt?: string;
-  updatedAt?: string;
 }
 
 /**
- * Sepet özeti
+ * Sepet özeti tipi
  */
 export interface CartSummary {
   itemCount: number;
-  subTotal: number;
+  subtotal: number;
   shipping: number;
   tax: number;
   total: number;
 }
 
 /**
- * API yanıt tipi - başarılı
+ * API yanıt tipi (başarılı durumda)
  */
-export interface ApiSuccess<T> {
+export interface CartApiSuccessResponse {
   success: true;
-  data: T;
+  data: Cart;
 }
 
 /**
- * API yanıt tipi - hata
+ * API yanıt tipi (hata durumunda)
  */
-export interface ApiError {
+export interface CartApiErrorResponse {
   success: false;
   error: string;
 }
 
 /**
- * API yanıt birleşik tip
+ * Birleştirilmiş API yanıt tipi
  */
-export type CartApiResponse<T> = ApiSuccess<T> | ApiError;
+export type CartApiResponse = CartApiSuccessResponse | CartApiErrorResponse;
