@@ -1,135 +1,123 @@
-import { useState, useEffect } from 'react';
-import { useToast } from '@/components/ui/use-toast';
-import { cartService } from '../services/cartService';
-import { Cart, CartItem, CartSummary } from '../types';
+import { useState, useEffect, useCallback } from 'react';
+import { useSession } from '@/hooks/useSession';
+import { CartApi } from '../api/cartApi';
+import { Cart, CartSummary } from '../types';
 
-export function useCart() {
+interface UseCartReturn {
+  cart: Cart | null;
+  isLoading: boolean;
+  error: Error | null;
+  summary: CartSummary | null;
+  addItem: (productId: string, quantity: number, price: number) => Promise<void>;
+  updateQuantity: (itemId: string, quantity: number) => Promise<void>;
+  removeItem: (itemId: string) => Promise<void>;
+  clearCart: () => Promise<void>;
+  refreshCart: () => Promise<void>;
+}
+
+export function useCart(): UseCartReturn {
   const [cart, setCart] = useState<Cart | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const { toast } = useToast();
+  const [summary, setSummary] = useState<CartSummary | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<Error | null>(null);
+  const { session } = useSession();
+  const cartApi = new CartApi();
 
-  const calculateCartSummary = (cartItems: CartItem[]): CartSummary => {
-    return cartItems.reduce(
-      (summary, item) => {
-        return {
-          totalItems: summary.totalItems + item.quantity,
-          totalPrice: summary.totalPrice + item.price * item.quantity,
-        };
-      },
-      { totalItems: 0, totalPrice: 0 }
-    );
-  };
+  const refreshCart = useCallback(async () => {
+    if (!session?.user?.id) {
+      setIsLoading(false);
+      return;
+    }
 
-  const fetchCart = async () => {
     setIsLoading(true);
-    try {
-      const result = await cartService.getCart();
-      setCart(result);
-      setError(null);
-    } catch (err) {
-      setError('Sepet yüklenirken bir hata oluştu');
-      toast({
-        title: 'Hata',
-        description: 'Sepet yüklenirken bir hata oluştu',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    setError(null);
 
-  const addItem = async (productId: string, quantity: number, productDetails: Partial<CartItem>) => {
     try {
-      setIsLoading(true);
-      await cartService.addItem(productId, quantity, productDetails);
-      await fetchCart();
-      toast({
-        title: 'Ürün sepete eklendi',
-        description: 'Ürün başarıyla sepete eklendi',
-      });
-    } catch (err) {
-      toast({
-        title: 'Hata',
-        description: 'Ürün sepete eklenirken bir hata oluştu',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      let userCart = await cartApi.getUserCart(session.user.id);
+      
+      // Eğer sepet yoksa oluştur
+      if (!userCart) {
+        const cartId = await cartApi.createCart(session.user.id);
+        userCart = await cartApi.getUserCart(session.user.id);
+      }
 
-  const updateItemQuantity = async (itemId: string, quantity: number) => {
-    try {
-      setIsLoading(true);
-      await cartService.updateItemQuantity(itemId, quantity);
-      await fetchCart();
+      setCart(userCart);
+      
+      if (userCart) {
+        const cartSummary = cartApi.calculateCartSummary(userCart);
+        setSummary(cartSummary);
+      }
     } catch (err) {
-      toast({
-        title: 'Hata',
-        description: 'Ürün miktarı güncellenirken bir hata oluştu',
-        variant: 'destructive',
-      });
+      setError(err instanceof Error ? err : new Error('Beklenmeyen bir hata oluştu'));
+      console.error('Sepet yüklenirken hata:', err);
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const removeItem = async (itemId: string) => {
-    try {
-      setIsLoading(true);
-      await cartService.removeItem(itemId);
-      await fetchCart();
-      toast({
-        title: 'Ürün silindi',
-        description: 'Ürün sepetten silindi',
-      });
-    } catch (err) {
-      toast({
-        title: 'Hata',
-        description: 'Ürün silinirken bir hata oluştu',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const clearCart = async () => {
-    try {
-      setIsLoading(true);
-      await cartService.clearCart();
-      await fetchCart();
-      toast({
-        title: 'Sepet temizlendi',
-        description: 'Sepetinizdeki tüm ürünler silindi',
-      });
-    } catch (err) {
-      toast({
-        title: 'Hata',
-        description: 'Sepet temizlenirken bir hata oluştu',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [session?.user?.id]);
 
   useEffect(() => {
-    fetchCart();
-  }, []);
+    refreshCart();
+  }, [refreshCart]);
 
-  const cartSummary = cart?.items ? calculateCartSummary(cart.items) : { totalItems: 0, totalPrice: 0 };
+  const addItem = useCallback(async (productId: string, quantity: number, price: number) => {
+    if (!session?.user?.id || !cart) {
+      throw new Error('Oturum veya sepet bulunamadı');
+    }
+
+    try {
+      await cartApi.addItem(cart.id, productId, quantity, price);
+      await refreshCart();
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Ürün eklenirken hata oluştu'));
+      throw err;
+    }
+  }, [cart, session?.user?.id, refreshCart]);
+
+  const updateQuantity = useCallback(async (itemId: string, quantity: number) => {
+    if (!cart) return;
+
+    try {
+      await cartApi.updateItemQuantity(itemId, quantity);
+      await refreshCart();
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Miktar güncellenirken hata oluştu'));
+      throw err;
+    }
+  }, [cart, refreshCart]);
+
+  const removeItem = useCallback(async (itemId: string) => {
+    if (!cart) return;
+
+    try {
+      await cartApi.removeItem(itemId);
+      await refreshCart();
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Ürün kaldırılırken hata oluştu'));
+      throw err;
+    }
+  }, [cart, refreshCart]);
+
+  const clearCart = useCallback(async () => {
+    if (!cart) return;
+
+    try {
+      await cartApi.clearCart(cart.id);
+      await refreshCart();
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Sepet temizlenirken hata oluştu'));
+      throw err;
+    }
+  }, [cart, refreshCart]);
 
   return {
     cart,
     isLoading,
     error,
-    cartSummary,
-    fetchCart,
+    summary,
     addItem,
-    updateItemQuantity,
+    updateQuantity,
     removeItem,
     clearCart,
+    refreshCart
   };
 }
