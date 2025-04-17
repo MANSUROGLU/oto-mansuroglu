@@ -1,114 +1,64 @@
-import React, { useState } from 'react';
-import { Cart } from '../types';
-import { 
-  calculateSubtotal, 
-  calculateTax, 
-  calculateShipping, 
-  calculateTotal,
-  calculateDiscount
-} from '../utils/cartCalculations';
+import React from 'react';
+import { useCartContext } from '../context/CartContext';
+import Link from 'next/link';
 
-interface CartSummaryProps {
-  cart: Cart;
-  onCheckout: () => void;
-}
-
-const CartSummary: React.FC<CartSummaryProps> = ({ cart, onCheckout }) => {
-  const [discountCode, setDiscountCode] = useState('');
-  const [appliedDiscount, setAppliedDiscount] = useState<string | null>(null);
-
-  const subtotal = calculateSubtotal(cart);
-  const tax = calculateTax(subtotal);
-  const shipping = calculateShipping(subtotal);
-  const discount = appliedDiscount ? calculateDiscount(subtotal, appliedDiscount) : 0;
-  const total = calculateTotal(subtotal, tax, shipping) - discount;
-
-  const handleApplyDiscount = () => {
-    if (discountCode.trim()) {
-      setAppliedDiscount(discountCode);
-      setDiscountCode('');
-    }
-  };
-
-  const handleRemoveDiscount = () => {
-    setAppliedDiscount(null);
-  };
-
+const CartSummary: React.FC = () => {
+  const { cart } = useCartContext();
+  
+  const subtotal = cart.items.reduce((total, item) => total + (item.price * item.quantity), 0);
+  const shipping = subtotal > 0 ? 50 : 0; // Sabit kargo ücreti, sepet boş değilse
+  const total = subtotal + shipping;
+  
   return (
-    <div className="bg-gray-50 rounded-lg p-6 shadow-sm">
-      <h2 className="text-xl font-semibold text-gray-800 mb-4">Sipariş Özeti</h2>
+    <div className="bg-gray-50 p-6 rounded-lg shadow-sm">
+      <h2 className="text-xl font-bold text-gray-900 mb-4">Sipariş Özeti</h2>
       
-      <div className="space-y-3 mb-4">
-        <div className="flex justify-between">
-          <span className="text-gray-600">Ara Toplam</span>
-          <span className="font-medium">{subtotal.toLocaleString('tr-TR')} TL</span>
-        </div>
-        
-        <div className="flex justify-between">
-          <span className="text-gray-600">KDV (%18)</span>
-          <span className="font-medium">{tax.toLocaleString('tr-TR')} TL</span>
-        </div>
-        
-        <div className="flex justify-between">
-          <span className="text-gray-600">Kargo</span>
-          <span className="font-medium">
-            {shipping === 0 ? 'Ücretsiz' : `${shipping.toLocaleString('tr-TR')} TL`}
+      <div className="space-y-3">
+        <div className="flex justify-between text-gray-700">
+          <span>Ara Toplam</span>
+          <span>
+            {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(subtotal)}
           </span>
         </div>
         
-        {appliedDiscount && (
-          <div className="flex justify-between text-green-600">
-            <div className="flex items-center">
-              <span>İndirim</span>
-              <button 
-                onClick={handleRemoveDiscount}
-                className="ml-2 text-xs text-red-500 hover:text-red-700"
-              >
-                (Kaldır)
-              </button>
-            </div>
-            <span className="font-medium">-{discount.toLocaleString('tr-TR')} TL</span>
-          </div>
-        )}
+        <div className="flex justify-between text-gray-700">
+          <span>Kargo</span>
+          <span>
+            {subtotal === 0 
+              ? "—" 
+              : new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(shipping)}
+          </span>
+        </div>
         
-        <div className="border-t border-gray-200 pt-3 mt-3">
-          <div className="flex justify-between font-semibold text-lg">
+        <div className="border-t pt-3 mt-3 border-gray-200">
+          <div className="flex justify-between font-bold text-lg text-gray-900">
             <span>Toplam</span>
-            <span>{total.toLocaleString('tr-TR')} TL</span>
+            <span>
+              {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(total)}
+            </span>
           </div>
         </div>
       </div>
       
-      {!appliedDiscount && (
-        <div className="mb-4">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="İndirim kodu"
-              value={discountCode}
-              onChange={(e) => setDiscountCode(e.target.value)}
-              className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              onClick={handleApplyDiscount}
-              className="bg-gray-200 text-gray-800 px-4 py-2 rounded text-sm font-medium hover:bg-gray-300 transition-colors"
-            >
-              Uygula
-            </button>
-          </div>
-        </div>
-      )}
-      
-      <button
-        onClick={onCheckout}
-        disabled={cart.items.length === 0}
-        className="w-full bg-blue-600 text-white py-3 rounded-md font-medium hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-      >
-        Ödemeye Geç
-      </button>
-      
-      <div className="text-xs text-gray-500 mt-3 text-center">
-        Ödemeye geçtiğinizde, satın alma koşullarını kabul etmiş olursunuz.
+      <div className="mt-6 space-y-3">
+        <Link 
+          href={cart.items.length > 0 ? "/checkout" : "#"} 
+          className={`w-full block text-center py-3 px-4 rounded-md ${
+            cart.items.length > 0 
+              ? "bg-blue-600 text-white hover:bg-blue-700" 
+              : "bg-gray-300 text-gray-500 cursor-not-allowed"
+          }`}
+          onClick={(e) => cart.items.length === 0 && e.preventDefault()}
+        >
+          Ödeme İşlemine Geç
+        </Link>
+        
+        <Link 
+          href="/products" 
+          className="w-full block text-center py-3 px-4 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+        >
+          Alışverişe Devam Et
+        </Link>
       </div>
     </div>
   );
